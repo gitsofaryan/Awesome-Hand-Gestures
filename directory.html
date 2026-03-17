@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Awesome Hand Gestures Directory</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #0a0a0a;
+        color: white;
+        font-family:
+          "Segoe UI",
+          system-ui,
+          -apple-system,
+          sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        overflow: hidden;
+      }
+
+      .container {
+        text-align: center;
+        max-width: 800px;
+        padding: 20px;
+      }
+
+      h1 {
+        font-size: 3rem;
+        margin-bottom: 10px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        background: linear-gradient(45deg, #00d4ff, #ff0073);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: glow 3s infinite alternate;
+      }
+
+      @keyframes glow {
+        from {
+          text-shadow: 0 0 10px rgba(0, 212, 255, 0.2);
+        }
+        to {
+          text-shadow: 0 0 30px rgba(255, 0, 115, 0.4);
+        }
+      }
+
+      p {
+        font-size: 1.2rem;
+        color: #888;
+        margin-bottom: 40px;
+      }
+
+      .directory {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 30px;
+        width: 100%;
+      }
+
+      .card {
+        position: relative;
+        background: #1a1a1a;
+        border: 2px solid #333;
+        border-radius: 20px;
+        padding: 40px 20px;
+        text-decoration: none;
+        color: white;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        overflow: hidden;
+        cursor: pointer;
+      }
+
+      .card:hover {
+        transform: translateY(-10px) scale(1.05);
+        border-color: #00d4ff;
+        box-shadow: 0 15px 40px rgba(0, 212, 255, 0.3);
+      }
+
+      .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          rgba(255, 255, 255, 0.1),
+          transparent
+        );
+        transition: 0.5s;
+      }
+
+      .card:hover::before {
+        left: 100%;
+      }
+
+      .icon {
+        font-size: 4rem;
+        margin-bottom: 20px;
+        display: block;
+      }
+
+      .title {
+        font-size: 1.8rem;
+        font-weight: bold;
+        margin-bottom: 10px;
+        display: block;
+      }
+
+      .desc {
+        font-size: 0.9rem;
+        color: #aaa;
+      }
+
+      .ninja-card:hover {
+        border-color: #ff4d00;
+        box-shadow: 0 15px 40px rgba(255, 77, 0, 0.3);
+      }
+
+      .mystic-card:hover {
+        border-color: #00d4ff;
+        box-shadow: 0 15px 40px rgba(0, 212, 255, 0.3);
+      }
+
+      @media (max-width: 600px) {
+        .directory {
+          grid-template-columns: 1fr;
+        }
+        h1 {
+          font-size: 2rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Hand Visualizers</h1>
+      <p>Select your power source to begin detection</p>
+
+      <div class="directory">
+        <a href="index.html" class="card ninja-card">
+          <span class="icon">🍥</span>
+          <span class="title">Ninja Mode</span>
+          <span class="desc"
+            >Chidori & Rasengan effects using hand distance tracking</span
+          >
+        </a>
+
+        <a href="magic-shield.html" class="card mystic-card">
+          <span class="icon">✨</span>
+          <span class="title">Mystic Mode</span>
+          <span class="desc"
+            >Ancient Magic Shields with 6 specialized hand gestures</span
+          >
+        </a>
+      </div>
+    </div>
+  </body>
+</html>

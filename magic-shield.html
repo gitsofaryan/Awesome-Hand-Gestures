@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Magic Shield - Hand Detection</title>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: black;
+        font-family: Arial, sans-serif;
+      }
+      #v_src,
+      #mainCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+      }
+      #v_src {
+      }
+      #mainCanvas {
+        z-index: 10;
+        pointer-events: none;
+      }
+      .info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: #00ff00;
+        font-size: 14px;
+        z-index: 100;
+        font-family: monospace;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 10px;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <video id="v_src" autoplay playsinline></video>
+    <canvas id="mainCanvas"></canvas>
+
+    <script>
+      const vElement = document.getElementById("v_src");
+      const canvasElement = document.getElementById("mainCanvas");
+      const ctx = canvasElement.getContext("2d");
+
+      let deg = 0;
+      let img1 = null;
+      let img2 = null;
+      let img3 = null;
+      let img4 = null;
+
+      // Load all magic circle images
+      function loadImages() {
+        img1 = new Image();
+        img1.src = "assets/magic_circle_1.png";
+
+        img2 = new Image();
+        img2.src = "assets/magic_circle_2.png";
+
+        img3 = new Image();
+        img3.src = "assets/magic_circle_ccw.png";
+
+        img4 = new Image();
+        img4.src = "assets/magic_circle_cw.png";
+      }
+
+      function positionData(lmList) {
+        return {
+          wrist: [lmList[0][0], lmList[0][1]],
+          thumb_tip: [lmList[4][0], lmList[4][1]],
+          index_mcp: [lmList[5][0], lmList[5][1]],
+          index_tip: [lmList[8][0], lmList[8][1]],
+          middle_mcp: [lmList[9][0], lmList[9][1]],
+          middle_tip: [lmList[12][0], lmList[12][1]],
+          ring_tip: [lmList[16][0], lmList[16][1]],
+          pinky_tip: [lmList[20][0], lmList[20][1]],
+        };
+      }
+
+      function drawLine(p1, p2, size = 5) {
+        ctx.lineWidth = size;
+        ctx.strokeStyle = "#3232FF";
+        ctx.beginPath();
+        ctx.moveTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        ctx.stroke();
+
+        ctx.lineWidth = size / 2;
+        ctx.strokeStyle = "#FFFFFF";
+        ctx.beginPath();
+        ctx.moveTo(p1[0], p1[1]);
+        ctx.lineTo(p2[0], p2[1]);
+        ctx.stroke();
+      }
+
+      function calculateDistance(p1, p2) {
+        const x1 = p1[0],
+          y1 = p1[1],
+          x2 = p2[0],
+          y2 = p2[1];
+        return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+      }
+
+      function detectGesture(pos) {
+        const wrist = pos.wrist;
+        const thumb = pos.thumb_tip;
+        const index = pos.index_tip;
+        const middle = pos.middle_tip;
+        const ring = pos.ring_tip;
+        const pinky = pos.pinky_tip;
+
+        // Calculate distances for each finger
+        const distThumb = calculateDistance(wrist, thumb);
+        const distIndex = calculateDistance(wrist, index);
+        const distMiddle = calculateDistance(wrist, middle);
+        const distRing = calculateDistance(wrist, ring);
+        const distPinky = calculateDistance(wrist, pinky);
+
+        // Threshold for finger extension
+        const palmDist = calculateDistance(wrist, pos.index_mcp);
+        const extThreshold = palmDist * 1.2;
+
+        const isThumbUp = distThumb > extThreshold;
+        const isIndexUp = distIndex > extThreshold;
+        const isMiddleUp = distMiddle > extThreshold;
+        const isRingUp = distRing > extThreshold;
+        const isPinkyUp = distPinky > extThreshold;
+
+        const fingerCount = [
+          isThumbUp,
+          isIndexUp,
+          isMiddleUp,
+          isRingUp,
+          isPinkyUp,
+        ].filter(Boolean).length;
+
+        // Gesture detection
+        if (fingerCount === 5) return "open"; // All fingers open
+        if (fingerCount === 0) return "fist"; // All closed
+        if (isIndexUp && isMiddleUp && !isRingUp && !isPinkyUp) return "peace"; // Peace sign
+        if (isThumbUp && !isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp)
+          return "thumbsup"; // Thumbs up
+        if (isIndexUp && !isMiddleUp && !isRingUp && !isPinkyUp) return "point"; // Pointing
+        if (isIndexUp && isPinkyUp && !isMiddleUp && !isRingUp) return "rock"; // Rock sign
+        if (isThumbUp && isIndexUp && isMiddleUp && isRingUp && isPinkyUp)
+          return "open"; // Open hand
+
+        return "idle";
+      }
+
+      function drawRotatedImage(img, x, y, width, height, angle) {
+        if (!img || !img.complete) return;
+
+        ctx.save();
+        ctx.translate(x + width / 2, y + height / 2);
+        ctx.rotate((angle * Math.PI) / 180);
+        ctx.drawImage(img, -width / 2, -height / 2, width, height);
+        ctx.restore();
+      }
+
+      function drawShield(pos, gesture, centerX, centerY, diameter) {
+        const gestureShields = {
+          open: { img: img1, speed: 2, label: "✋ OPEN SHIELD" },
+          fist: { img: img2, speed: 3, label: "✊ FIST POWER" },
+          peace: { img: img1, speed: 2.5, label: "✌️ PEACE FORCE" },
+          thumbsup: { img: img2, speed: 3.5, label: "👍 THUMBS POWER" },
+          point: { img: img1, speed: 2, label: "☝️ POINT STRIKE" },
+          rock: { img: img2, speed: 4, label: "🤘 ROCK FORCE" },
+        };
+
+        const shield = gestureShields[gesture] || gestureShields["open"];
+
+        if (shield.img) {
+          deg += shield.speed;
+          if (deg > 360) deg = 0;
+
+          drawRotatedImage(
+            shield.img,
+            centerX - diameter / 2,
+            centerY - diameter / 2,
+            diameter,
+            diameter,
+            deg,
+          );
+
+          infoDiv.textContent = `${shield.label} | Gesture: ${gesture.toUpperCase()}`;
+        }
+      }
+
+      function onResults(res) {
+        canvasElement.width = vElement.videoWidth;
+        canvasElement.height = vElement.videoHeight;
+
+        // --- MIRRORING LIKE INDEX.HTML ---
+        ctx.save();
+        ctx.translate(canvasElement.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(
+          vElement,
+          0,
+          0,
+          canvasElement.width,
+          canvasElement.height,
+        );
+        ctx.restore();
+
+        let handDetected = false;
+
+        if (res.multiHandLandmarks && res.multiHandedness) {
+          res.multiHandLandmarks.forEach((pts, i) => {
+            handDetected = true;
+
+            // Mirror landmarks: (1 - x) to match mirrored video
+            const lmList = pts.map((lm) => [
+              (1 - lm.x) * canvasElement.width,
+              lm.y * canvasElement.height,
+            ]);
+
+            const pos = positionData(lmList);
+            const gesture = detectGesture(pos);
+
+            if (gesture !== "idle") {
+              const palm = calculateDistance(pos.wrist, pos.index_mcp);
+              const shieldSize = 3.0;
+              let diameter = Math.round(palm * shieldSize);
+
+              const centerX = pos.middle_mcp[0];
+              const centerY = pos.middle_mcp[1];
+
+              // Boundary checks
+              const w = canvasElement.width;
+              const h = canvasElement.height;
+
+              let x1 = Math.round(centerX - diameter / 2);
+              let y1 = Math.round(centerY - diameter / 2);
+
+              if (x1 < 0) x1 = 0;
+              if (x1 > w) x1 = w;
+              if (y1 < 0) y1 = 0;
+              if (y1 > h) y1 = h;
+              if (x1 + diameter > w) diameter = w - x1;
+              if (y1 + diameter > h) diameter = h - y1;
+
+              if (diameter > 0) {
+                drawShield(pos, gesture, centerX, centerY, diameter);
+              }
+            }
+          });
+        }
+
+        if (!handDetected) {
+          infoDiv.textContent = "Waiting for hands... Show gestures";
+        }
+      }
+
+      // Initialize Hands
+      const hands = new Hands({
+        locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`,
+      });
+
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.65,
+        minTrackingConfidence: 0.65,
+      });
+
+      hands.onResults(onResults);
+
+      // Initialize Camera
+      // Initialize Camera
+    const camera = new Camera(vElement, {
+      onFrame: async () => {
+        await hands.send({ image: vElement });
+      },
+      width: window.innerWidth > window.innerHeight ? 1280 : 720,
+      height: window.innerWidth > window.innerHeight ? 720 : 1280
+    });
+
+      // Load images and start camera
+      loadImages();
+      camera.start();
+    </script>
+  </body>
+</html>
