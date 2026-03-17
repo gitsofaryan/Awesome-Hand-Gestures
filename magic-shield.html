@@ -2,8 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Magic Shield - Hand Detection</title>
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>Magic Shield - Hand Detection</title>
 
     <script
       src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
@@ -180,12 +183,12 @@
 
       function drawShield(pos, gesture, centerX, centerY, diameter) {
         const gestureShields = {
-          open: { img: img1, speed: 2, label: "✋ OPEN SHIELD" },
-          fist: { img: img2, speed: 3, label: "✊ FIST POWER" },
-          peace: { img: img1, speed: 2.5, label: "✌️ PEACE FORCE" },
-          thumbsup: { img: img2, speed: 3.5, label: "👍 THUMBS POWER" },
-          point: { img: img1, speed: 2, label: "☝️ POINT STRIKE" },
-          rock: { img: img2, speed: 4, label: "🤘 ROCK FORCE" },
+          open: { img: img1, speed: 2 },
+          fist: { img: img2, speed: 3 },
+          peace: { img: img3, speed: 2.5 },
+          thumbsup: { img: img4, speed: 3.5 },
+          point: { img: img1, speed: 2 },
+          rock: { img: img2, speed: 4 },
         };
 
         const shield = gestureShields[gesture] || gestureShields["open"];
@@ -202,8 +205,6 @@
             diameter,
             deg,
           );
-
-          infoDiv.textContent = `${shield.label} | Gesture: ${gesture.toUpperCase()}`;
         }
       }
 
@@ -224,12 +225,8 @@
         );
         ctx.restore();
 
-        let handDetected = false;
-
         if (res.multiHandLandmarks && res.multiHandedness) {
           res.multiHandLandmarks.forEach((pts, i) => {
-            handDetected = true;
-
             // Mirror landmarks: (1 - x) to match mirrored video
             const lmList = pts.map((lm) => [
               (1 - lm.x) * canvasElement.width,
@@ -241,7 +238,7 @@
 
             if (gesture !== "idle") {
               const palm = calculateDistance(pos.wrist, pos.index_mcp);
-              const shieldSize = 3.0;
+              const shieldSize = 3.5;
               let diameter = Math.round(palm * shieldSize);
 
               const centerX = pos.middle_mcp[0];
@@ -267,10 +264,6 @@
             }
           });
         }
-
-        if (!handDetected) {
-          infoDiv.textContent = "Waiting for hands... Show gestures";
-        }
       }
 
       // Initialize Hands
@@ -289,13 +282,13 @@
 
       // Initialize Camera
       // Initialize Camera
-    const camera = new Camera(vElement, {
-      onFrame: async () => {
-        await hands.send({ image: vElement });
-      },
-      width: window.innerWidth > window.innerHeight ? 1280 : 720,
-      height: window.innerWidth > window.innerHeight ? 720 : 1280
-    });
+      const camera = new Camera(vElement, {
+        onFrame: async () => {
+          await hands.send({ image: vElement });
+        },
+        width: window.innerWidth > window.innerHeight ? 1280 : 720,
+        height: window.innerWidth > window.innerHeight ? 720 : 1280,
+      });
 
       // Load images and start camera
       loadImages();
