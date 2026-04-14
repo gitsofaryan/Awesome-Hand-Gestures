@@ -67,9 +67,62 @@
         width: 65vmin;
         max-width: 700px;
       }
+
+      /* Back button */
+      .back-btn {
+          position: fixed;
+          top: 16px; right: 16px;
+          z-index: 20;
+          background: rgba(10,10,30,0.55);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 12px;
+          padding: 10px 18px;
+          color: #fff;
+          text-decoration: none;
+          font-size: 0.82rem;
+          font-weight: 600;
+          transition: all 0.2s;
+          font-family: sans-serif;
+      }
+      .back-btn:hover { background: rgba(255,255,255,0.1); }
+
+      /* Loading overlay */
+      #loader {
+          position: fixed;
+          inset: 0;
+          z-index: 100;
+          background: rgba(0,0,0,0.92);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 20px;
+          transition: opacity 0.6s;
+          font-family: sans-serif;
+      }
+      #loader h2 { font-weight: 300; letter-spacing: 3px; font-size: 1.4rem; color: #fff;}
+      #loader p { color: #666; font-size: 0.9rem; }
+      .spinner {
+          width: 40px; height: 40px;
+          border: 3px solid rgba(255,255,255,0.1);
+          border-top-color: #00fbff;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin { to { transform: rotate(360deg); }}
+      .fade-out { opacity: 0; pointer-events: none; }
     </style>
   </head>
   <body>
+    <div id="loader">
+        <div class="spinner"></div>
+        <h2>NINJA MODE</h2>
+        <p>Loading hand tracking model…</p>
+    </div>
+    <a href="../index.html" class="back-btn">← Back</a>
+
     <video id="v_src" autoplay playsinline></video>
     <canvas id="out"></canvas>
     <div class="darkness"></div>
@@ -121,6 +174,11 @@
       }
 
       function onResults(res) {
+        const loader = document.getElementById('loader');
+        if (loader && !loader.classList.contains('fade-out')) {
+            loader.classList.add('fade-out');
+        }
+
         cElement.width = vElement.videoWidth;
         cElement.height = vElement.videoHeight;
         ctx.save();
@@ -232,9 +290,9 @@
 
       h.setOptions({
         maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.65,
-        minTrackingConfidence: 0.65,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5,
       });
 
       h.onResults(onResults);

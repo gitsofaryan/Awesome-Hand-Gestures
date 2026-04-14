@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Magic Draw & Fireworks — Hand Tracking</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Outfit', sans-serif;
+            color: #fff;
+            touch-action: none;
+        }
+
+        #videoEl {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            object-fit: cover;
+            transform: scaleX(-1);
+            z-index: 0;
+            filter: brightness(0.45) contrast(1.15) saturate(0.8);
+        }
+
+        #drawCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #fxCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        /* HUD */
+        .hud {
+            position: fixed;
+            top: 16px; left: 16px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .hud-panel {
+            background: rgba(10, 10, 30, 0.55);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 12px 18px;
+            font-size: 0.82rem;
+            color: rgba(255,255,255,0.7);
+            min-width: 160px;
+        }
+        .hud-panel .val { color: #7df9ff; font-weight: 700; }
+
+        /* Tool bar */
+        .toolbar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            gap: 6px;
+            background: rgba(10,10,30,0.6);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 40px;
+            padding: 6px 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 95vw;
+        }
+
+        .tool-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: rgba(255,255,255,0.65);
+            padding: 8px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.8rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .tool-btn.active {
+            background: rgba(255,255,255,0.12);
+            border-color: rgba(255,255,255,0.25);
+            color: #fff;
+        }
+        .tool-btn:hover { color: #fff; }
+
+        .clear-btn {
+            background: rgba(255,60,60,0.2);
+            border: 1px solid rgba(255,60,60,0.3);
+            color: #ff6b6b;
+        }
+        .clear-btn:hover { background: rgba(255,60,60,0.35); }
+
+        /* Back button */
+        .back-btn {
+            position: fixed;
+            top: 16px; right: 16px;
+            z-index: 20;
+            background: rgba(10,10,30,0.55);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 10px 18px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.82rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.1); }
+
+        /* Loading overlay */
+        #loader {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0,0,0,0.92);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.6s;
+        }
+        #loader h2 { font-weight: 300; letter-spacing: 3px; font-size: 1.4rem; }
+        #loader p { color: #666; font-size: 0.9rem; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #7df9ff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); }}
+        .fade-out { opacity: 0; pointer-events: none; }
+
+        @media (max-width: 600px) {
+            .hud { top: 10px; left: 10px; }
+            .hud-panel { padding: 8px 12px; font-size: 0.72rem; min-width: 130px; }
+            .toolbar { bottom: 12px; padding: 5px 8px; gap: 4px; }
+            .tool-btn { padding: 6px 10px; font-size: 0.7rem; }
+            .back-btn { padding: 8px 12px; font-size: 0.75rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loader">
+    <div class="spinner"></div>
+    <h2>MAGIC DRAW</h2>
+    <p>Loading hand tracking model…</p>
+</div>
+
+<video id="videoEl" autoplay playsinline></video>
+<canvas id="drawCanvas"></canvas>
+<canvas id="fxCanvas"></canvas>
+
+<a href="../index.html" class="back-btn">← Back</a>
+
+<div class="hud">
+    <div class="hud-panel">
+        Hands: <span class="val" id="h-count">0</span>&ensp;|&ensp;FPS: <span class="val" id="h-fps">0</span>
+    </div>
+    <div class="hud-panel">
+        Mode: <span class="val" id="h-mode">Neon Draw</span>
+    </div>
+</div>
+
+<div class="toolbar">
+    <button class="tool-btn active" data-mode="neon">✏️ Neon Draw</button>
+    <button class="tool-btn" data-mode="rainbow">🌈 Rainbow</button>
+    <button class="tool-btn" data-mode="fire">🔥 Fire Trail</button>
+    <button class="tool-btn" data-mode="stars">⭐ Star Dust</button>
+    <button class="tool-btn clear-btn" id="clearBtn">🗑 Clear</button>
+</div>
+
+<script>
+// ─── GLOBALS ──────────────────────────────
+const video = document.getElementById('videoEl');
+const drawCanvas = document.getElementById('drawCanvas');
+const fxCanvas   = document.getElementById('fxCanvas');
+const drawCtx = drawCanvas.getContext('2d');
+const fxCtx   = fxCanvas.getContext('2d');
+
+let W = window.innerWidth, H = window.innerHeight;
+let time = 0, lastT = performance.now(), fps = 0, fc = 0, fpsT = performance.now();
+let currentHands = [];
+let drawMode = 'neon';
+
+// Previous fingertip positions for trail drawing
+let prevTips = {};
+
+// Firework particles
+let fireworks = [];
+// Persistent draw strokes stay on drawCanvas
+// Transient FX (fireworks, sparkles) go on fxCanvas
+
+const TIPS = [4, 8, 12, 16, 20]; // thumb, index, middle, ring, pinky
+const TIP_NAMES = ['thumb','index','middle','ring','pinky'];
+
+// ─── SETUP ────────────────────────────────
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    // drawCanvas retains content (persistent drawing)
+    // We save and restore to avoid clearing on resize
+    const imgData = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+    drawCanvas.width = W;
+    drawCanvas.height = H;
+    drawCtx.putImageData(imgData, 0, 0);
+
+    fxCanvas.width = W;
+    fxCanvas.height = H;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── TOOLBAR ──────────────────────────────
+document.querySelectorAll('.tool-btn:not(.clear-btn)').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tool-btn:not(.clear-btn)').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        drawMode = btn.dataset.mode;
+        document.getElementById('h-mode').textContent = btn.textContent.trim();
+    });
+});
+
+document.getElementById('clearBtn').addEventListener('click', () => {
+    drawCtx.clearRect(0, 0, W, H);
+    prevTips = {};
+});
+
+// ─── COORDINATE MAPPING ──────────────────
+function toScreen(lm) {
+    // MediaPipe gives normalized [0,1] coords. Video is mirrored via CSS scaleX(-1),
+    // so we mirror x here so drawing aligns with what the user sees.
+    return { x: (1 - lm.x) * W, y: lm.y * H };
+}
+
+// ─── DRAWING MODES ───────────────────────
+function getTrailColor(tipIdx, t) {
+    switch (drawMode) {
+        case 'neon':
+            const neonColors = ['#00ffff','#ff00ff','#ffff00','#00ff88','#ff4488'];
+            return neonColors[tipIdx % neonColors.length];
+        case 'rainbow':
+            return `hsl(${(t * 80 + tipIdx * 72) % 360}, 100%, 60%)`;
+        case 'fire':
+            const fireH = 10 + Math.random() * 30;
+            const fireL = 45 + Math.random() * 20;
+            return `hsl(${fireH}, 100%, ${fireL}%)`;
+        case 'stars':
+            return `hsl(${45 + Math.random() * 20}, 100%, ${75 + Math.random() * 20}%)`;
+        default:
+            return '#fff';
+    }
+}
+
+function getTrailWidth(tipIdx) {
+    switch (drawMode) {
+        case 'neon': return 3;
+        case 'rainbow': return 4;
+        case 'fire': return 5;
+        case 'stars': return 2;
+        default: return 3;
+    }
+}
+
+// ─── FIREWORK SYSTEM ─────────────────────
+function spawnFirework(x, y, color) {
+    const count = 40 + Math.floor(Math.random() * 30);
+    for (let i = 0; i < count; i++) {
+        const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.3;
+        const speed = 3 + Math.random() * 6;
+        fireworks.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            decay: 0.012 + Math.random() * 0.015,
+            color: color,
+            size: 1.5 + Math.random() * 2.5,
+            trail: []
+        });
+    }
+}
+
+function spawnSparkle(x, y) {
+    const colors = ['#ffdd44','#ff8844','#ff4466','#44ddff','#ffffff'];
+    for (let i = 0; i < 12; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 1 + Math.random() * 3;
+        fireworks.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            life: 1.0,
+            decay: 0.03 + Math.random() * 0.02,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: 1 + Math.random() * 1.5,
+            trail: []
+        });
+    }
+}
+
+function updateFireworks() {
+    fxCtx.globalCompositeOperation = 'lighter';
+
+    for (let i = fireworks.length - 1; i >= 0; i--) {
+        const p = fireworks[i];
+        p.trail.push({ x: p.x, y: p.y });
+        if (p.trail.length > 6) p.trail.shift();
+
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.08; // gravity
+        p.vx *= 0.98; // air resistance
+        p.vy *= 0.98;
+        p.life -= p.decay;
+
+        if (p.life <= 0) {
+            fireworks.splice(i, 1);
+            continue;
+        }
+
+        // Draw trail
+        if (p.trail.length > 1) {
+            fxCtx.beginPath();
+            fxCtx.moveTo(p.trail[0].x, p.trail[0].y);
+            for (let j = 1; j < p.trail.length; j++) {
+                fxCtx.lineTo(p.trail[j].x, p.trail[j].y);
+            }
+            fxCtx.lineTo(p.x, p.y);
+            fxCtx.strokeStyle = p.color;
+            fxCtx.lineWidth = p.size * p.life * 0.6;
+            fxCtx.globalAlpha = p.life * 0.5;
+            fxCtx.stroke();
+        }
+
+        // Draw particle head
+        fxCtx.beginPath();
+        fxCtx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+        fxCtx.fillStyle = p.color;
+        fxCtx.globalAlpha = p.life;
+        fxCtx.fill();
+
+        // Glow
+        fxCtx.beginPath();
+        fxCtx.arc(p.x, p.y, p.size * p.life * 3, 0, Math.PI * 2);
+        fxCtx.fillStyle = p.color;
+        fxCtx.globalAlpha = p.life * 0.15;
+        fxCtx.fill();
+    }
+
+    fxCtx.globalAlpha = 1;
+    fxCtx.globalCompositeOperation = 'source-over';
+}
+
+// ─── PINCH / TOUCH DETECTION ─────────────
+let wasPinching = [false, false];
+
+function checkPinch(hand, handIdx) {
+    const thumb = toScreen(hand[4]);
+    const index = toScreen(hand[8]);
+    const dx = thumb.x - index.x;
+    const dy = thumb.y - index.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    const isPinch = dist < 40;
+
+    if (isPinch && !wasPinching[handIdx]) {
+        const mx = (thumb.x + index.x) / 2;
+        const my = (thumb.y + index.y) / 2;
+
+        // FIREWORK EXPLOSION!
+        const hue = (time * 60 + handIdx * 180) % 360;
+        const c1 = `hsl(${hue}, 100%, 65%)`;
+        const c2 = `hsl(${(hue + 40) % 360}, 100%, 70%)`;
+        const c3 = `hsl(${(hue + 80) % 360}, 100%, 60%)`;
+        spawnFirework(mx, my, c1);
+        spawnFirework(mx, my, c2);
+        spawnFirework(mx, my, c3);
+    }
+    wasPinching[handIdx] = isPinch;
+}
+
+// Check if any two fingertips on the same hand touch (besides thumb-index pinch)
+function checkFingerTouch(hand) {
+    for (let i = 0; i < TIPS.length; i++) {
+        for (let j = i + 1; j < TIPS.length; j++) {
+            if (i === 0 && j === 1) continue; // skip thumb-index (handled as pinch)
+            const p1 = toScreen(hand[TIPS[i]]);
+            const p2 = toScreen(hand[TIPS[j]]);
+            const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            if (d < 30) {
+                const mx = (p1.x + p2.x) / 2;
+                const my = (p1.y + p2.y) / 2;
+                if (Math.random() > 0.7) {
+                    spawnSparkle(mx, my);
+                }
+            }
+        }
+    }
+}
+
+// ─── DRAW TRAILS ─────────────────────────
+function drawTrails() {
+    if (!currentHands.length) {
+        prevTips = {};
+        return;
+    }
+
+    currentHands.forEach((hand, hi) => {
+        // Only draw with index finger (landmark 8) by default
+        // But in "stars" mode, all fingertips draw
+        const activeTips = drawMode === 'stars' ? [1, 2, 3, 4] : [1]; // index positions in TIPS array
+
+        activeTips.forEach(ti => {
+            const tipIndex = TIPS[ti];
+            const key = `${hi}_${ti}`;
+            const pt = toScreen(hand[tipIndex]);
+            const color = getTrailColor(ti, time);
+            const lineW = getTrailWidth(ti);
+
+            if (prevTips[key]) {
+                const prev = prevTips[key];
+                const dist = Math.hypot(pt.x - prev.x, pt.y - prev.y);
+
+                // Only draw if finger moved enough (prevents blobs when stationary)
+                if (dist > 2 && dist < 200) {
+                    drawCtx.beginPath();
+                    drawCtx.moveTo(prev.x, prev.y);
+                    drawCtx.lineTo(pt.x, pt.y);
+                    drawCtx.strokeStyle = color;
+                    drawCtx.lineWidth = lineW;
+                    drawCtx.lineCap = 'round';
+                    drawCtx.lineJoin = 'round';
+
+                    if (drawMode === 'neon') {
+                        drawCtx.shadowBlur = 12;
+                        drawCtx.shadowColor = color;
+                    } else if (drawMode === 'fire') {
+                        drawCtx.shadowBlur = 18;
+                        drawCtx.shadowColor = '#ff4400';
+                    } else if (drawMode === 'rainbow') {
+                        drawCtx.shadowBlur = 8;
+                        drawCtx.shadowColor = color;
+                    } else {
+                        drawCtx.shadowBlur = 6;
+                        drawCtx.shadowColor = color;
+                    }
+
+                    drawCtx.stroke();
+                    drawCtx.shadowBlur = 0;
+
+                    // Fire mode: spawn embers along the trail
+                    if (drawMode === 'fire' && Math.random() > 0.5) {
+                        spawnSparkle(pt.x + (Math.random()-0.5)*10, pt.y + (Math.random()-0.5)*10);
+                    }
+                }
+            }
+            prevTips[key] = { x: pt.x, y: pt.y };
+        });
+
+        // Check interactions
+        checkPinch(hand, hi);
+        checkFingerTouch(hand);
+    });
+
+    // Cross-hand fingertip touch → big firework
+    if (currentHands.length >= 2) {
+        for (let ti = 0; ti < TIPS.length; ti++) {
+            const p1 = toScreen(currentHands[0][TIPS[ti]]);
+            const p2 = toScreen(currentHands[1][TIPS[ti]]);
+            const d = Math.hypot(p1.x - p2.x, p1.y - p2.y);
+            if (d < 50 && Math.random() > 0.85) {
+                const mx = (p1.x + p2.x) / 2;
+                const my = (p1.y + p2.y) / 2;
+                const hue = (time * 90 + ti * 72) % 360;
+                spawnFirework(mx, my, `hsl(${hue}, 100%, 65%)`);
+            }
+        }
+    }
+}
+
+// ─── FINGERTIP GLOW INDICATORS ───────────
+function drawFingerGlow() {
+    fxCtx.globalCompositeOperation = 'lighter';
+
+    currentHands.forEach((hand) => {
+        TIPS.forEach((tipIdx, i) => {
+            const pt = toScreen(hand[tipIdx]);
+            const color = getTrailColor(i, time);
+
+            // Outer glow
+            const grad = fxCtx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 18);
+            grad.addColorStop(0, color);
+            grad.addColorStop(1, 'transparent');
+            fxCtx.beginPath();
+            fxCtx.arc(pt.x, pt.y, 18, 0, Math.PI * 2);
+            fxCtx.fillStyle = grad;
+            fxCtx.globalAlpha = 0.5;
+            fxCtx.fill();
+
+            // Core dot
+            fxCtx.beginPath();
+            fxCtx.arc(pt.x, pt.y, 3, 0, Math.PI * 2);
+            fxCtx.fillStyle = '#fff';
+            fxCtx.globalAlpha = 0.9;
+            fxCtx.fill();
+        });
+
+        // Draw skeleton lines
+        if (typeof drawConnectors !== 'undefined' && typeof HAND_CONNECTIONS !== 'undefined') {
+            fxCtx.globalAlpha = 0.3;
+            drawConnectors(fxCtx, hand, HAND_CONNECTIONS, {
+                color: 'rgba(125,249,255,0.4)',
+                lineWidth: 1
+            });
+        }
+    });
+
+    fxCtx.globalAlpha = 1;
+    fxCtx.globalCompositeOperation = 'source-over';
+}
+
+// ─── RENDER LOOP ─────────────────────────
+function render(ts) {
+    requestAnimationFrame(render);
+
+    const dt = (ts - lastT) / 1000;
+    lastT = ts;
+    time += dt;
+
+    fc++;
+    if (ts > fpsT + 1000) {
+        fps = fc;
+        fc = 0;
+        fpsT = ts;
+        document.getElementById('h-fps').textContent = fps;
+    }
+
+    // Clear FX canvas each frame (transient effects)
+    fxCtx.clearRect(0, 0, W, H);
+
+    // Draw persistent trails
+    drawTrails();
+
+    // Draw fingertip glow on fx canvas
+    if (currentHands.length > 0) {
+        drawFingerGlow();
+    }
+
+    // Update and draw fireworks on fx canvas
+    if (fireworks.length > 0) {
+        updateFireworks();
+    }
+
+    // Cap fireworks array
+    if (fireworks.length > 500) {
+        fireworks.splice(0, fireworks.length - 500);
+    }
+
+    document.getElementById('h-count').textContent = currentHands.length;
+}
+
+// ─── MEDIAPIPE INIT ──────────────────────
+function init() {
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+        currentHands = results.multiHandLandmarks || [];
+
+        // Hide loader on first result
+        const loader = document.getElementById('loader');
+        if (loader && !loader.classList.contains('fade-out')) {
+            loader.classList.add('fade-out');
+        }
+    });
+
+    const isMobile = W < H;
+    const camera = new Camera(video, {
+        onFrame: async () => {
+            await hands.send({ image: video });
+        },
+        width: isMobile ? 720 : 1280,
+        height: isMobile ? 1280 : 720,
+        facingMode: 'user'
+    });
+
+    camera.start();
+    requestAnimationFrame(render);
+}
+
+init();
+</script>
+</body>
+</html>
