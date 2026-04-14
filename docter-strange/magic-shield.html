@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=0.8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Magic Shield - Hand Detection</title>
 
     <script
@@ -32,7 +32,7 @@
         left: 0;
         width: 100vw;
         height: 100vh;
-        object-fit: cover;
+        object-fit: contain;
       }
       #v_src {
       }
@@ -72,16 +72,16 @@
       // Load all magic circle images
       function loadImages() {
         img1 = new Image();
-        img1.src = "assets/magic_circle_1.png";
+        img1.src = "../assets/magic_circle_1.png";
 
         img2 = new Image();
-        img2.src = "assets/magic_circle_2.png";
+        img2.src = "../assets/magic_circle_2.png";
 
         img3 = new Image();
-        img3.src = "assets/magic_circle_ccw.png";
+        img3.src = "../assets/magic_circle_ccw.png";
 
         img4 = new Image();
-        img4.src = "assets/magic_circle_cw.png";
+        img4.src = "../assets/magic_circle_cw.png";
       }
 
       function positionData(lmList) {

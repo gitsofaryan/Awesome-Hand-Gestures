@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta name="viewport" content="width=device-width, initial-scale=0.8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Ninja Hand Detection</title>
 
     <script
@@ -30,7 +30,7 @@
         left: 0;
         width: 100vw;
         height: 100vh;
-        object-fit: cover;
+        object-fit: contain;
         transform: scaleX(-1);
       }
       #out {
@@ -60,12 +60,12 @@
         z-index: 20;
       }
       #n {
-        width: 120vw;
-        max-width: 1000px;
+        width: 60vmin;
+        max-width: 600px;
       }
       #s {
-        width: 130vw;
-        max-width: 1200px;
+        width: 65vmin;
+        max-width: 700px;
       }
     </style>
   </head>
@@ -77,7 +77,7 @@
     <video
       id="n"
       class="fx"
-      src="assets/naruto.mp4"
+      src="../assets/naruto.mp4"
       muted
       autoplay
       loop
@@ -86,7 +86,7 @@
     <video
       id="s"
       class="fx"
-      src="assets/sasuke.mp4"
+      src="../assets/sasuke.mp4"
       muted
       autoplay
       loop
@@ -168,12 +168,24 @@
             const knk = pts[9];
 
             if (pwr[idx] > 0.01) {
+              const vw = window.innerWidth;
+              const vh = window.innerHeight;
+              const vidW = cElement.width || 1;
+              const vidH = cElement.height || 1;
+              const scale = Math.min(vw / vidW, vh / vidH);
+              const offX = (vw - vidW * scale) / 2;
+              const offY = (vh - vidH * scale) / 2;
+
               if (isR) {
                 fR = true;
                 const tx = (wrist.x + knk.x) / 2;
                 const ty = (wrist.y + knk.y) / 2;
-                s.style.left = `${(1 - tx) * window.innerWidth}px`;
-                s.style.top = `${ty * window.innerHeight}px`;
+
+                const screenX = (1 - tx) * vidW * scale + offX;
+                const screenY = ty * vidH * scale + offY;
+
+                s.style.left = `${screenX}px`;
+                s.style.top = `${screenY}px`;
                 s.style.display = "block";
                 s.style.opacity = pwr[idx];
               } else {
@@ -182,8 +194,12 @@
                 const dy = knk.y - wrist.y;
                 const tx = knk.x + dx * 0.8;
                 const ty = knk.y + dy * 0.8;
-                n.style.left = `${(1 - tx) * window.innerWidth}px`;
-                n.style.top = `${ty * window.innerHeight - 120}px`;
+
+                const screenX = (1 - tx) * vidW * scale + offX;
+                const screenY = ty * vidH * scale + offY;
+
+                n.style.left = `${screenX}px`;
+                n.style.top = `${screenY - 120}px`;
                 n.style.display = "block";
                 n.style.opacity = pwr[idx];
               }
