@@ -10,6 +10,7 @@ A curated catalog of browser-based hand-tracking AR experiences powered by **Med
 | ✨ **Doctor Strange Shields** | Rotating magic circle mandalas | 6 gestures: open, fist, peace, thumbs up, point, rock |
 | 🔮 **Neon Aura AR** | Cyberpunk particles, lightning arcs, matrix rain, audio synth | Pinch, open hand, fist + 5 color themes |
 | 🧨 **Magic Draw** | Draw glowing trails, tap fingers for sparkles, or pinch for fireworks | Pinch, index point, finger tap |
+| 🖼️ **Shape Extractor** | OpenCV real-world geometry scanner | Point camera at non-living objects, tap shapes |
 
 ## 🚀 How to Use
 
@@ -32,8 +33,10 @@ A curated catalog of browser-based hand-tracking AR experiences powered by **Med
 │   └── magic-shield.html   # Doctor Strange experience
 ├── neon-aura/
 │   └── neon-aura.html      # Neon Aura AR experience
-└── magic-draw/
-    └── magic-draw.html     # Magic Draw & Fireworks experience
+├── magic-draw/
+│   └── magic-draw.html     # Magic Draw & Fireworks experience
+└── shape-extractor/
+    └── shape-extractor.html # OpenCV Shape detection & extraction
 ```
 
 ## ⚡ Performance

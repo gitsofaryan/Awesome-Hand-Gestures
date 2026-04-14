@@ -616,17 +616,36 @@ function init() {
         }
     });
 
-    const isMobile = W < H;
-    const camera = new Camera(video, {
-        onFrame: async () => {
-            await hands.send({ image: video });
-        },
-        width: isMobile ? 720 : 1280,
-        height: isMobile ? 1280 : 720,
-        facingMode: 'user'
-    });
+    async function setupCamera() {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const constraints = {
+            video: {
+                facingMode: 'user',
+                aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+            }
+        };
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+            await new Promise(resolve => {
+                video.onloadedmetadata = () => { resolve(); };
+            });
+            video.play();
 
-    camera.start();
+            async function detectionFrame() {
+                if (!video.paused && !video.ended) {
+                    await hands.send({ image: video });
+                }
+                requestAnimationFrame(detectionFrame);
+            }
+            detectionFrame();
+        } catch (error) {
+            console.error("Camera access error:", error);
+            alert("Could not access camera in 16:9 ratio. " + error);
+        }
+    }
+    
+    setupCamera();
     requestAnimationFrame(render);
 }
 

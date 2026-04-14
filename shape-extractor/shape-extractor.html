@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Scanner - Shape Extractor</title>
+    
+    <!-- We load OpenCV.js asynchronously -->
+    <script async src="https://docs.opencv.org/4.8.0/opencv.js" onload="onOpenCvReady();" type="text/javascript"></script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body, html { 
+            width: 100%; height: 100%; 
+            background: #000;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #videoElement {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            object-fit: cover;
+            /* We don't mirror the back camera! */
+            z-index: 1;
+        }
+
+        #canvasOutput {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 10;
+            cursor: crosshair;
+        }
+
+        /* Loading UI */
+        #loader {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(0,0,0,0.92);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.6s;
+            color: #fff;
+        }
+        #loader h2 { font-weight: 300; letter-spacing: 3px; font-size: 1.4rem; }
+        #loader p { color: #888; font-size: 0.9rem; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #00fbff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .fade-out { opacity: 0; pointer-events: none; }
+
+        /* Navigation */
+        .back-btn {
+            position: fixed;
+            top: 16px; right: 16px;
+            z-index: 50;
+            background: rgba(10,10,30,0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px;
+            padding: 8px 14px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .hud {
+            position: fixed;
+            top: 16px; left: 16px;
+            z-index: 50;
+            background: rgba(10,10,30,0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px;
+            padding: 8px 14px;
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        /* Floating Extracted Stamps */
+        .extracted-element {
+            position: absolute;
+            z-index: 100;
+            border: 2px solid #00ffcc;
+            box-shadow: 0 10px 30px rgba(0, 255, 204, 0.4), inset 0 0 15px rgba(0, 255, 204, 0.3);
+            border-radius: 8px;
+            cursor: grab;
+            transition: box-shadow 0.2s;
+        }
+        .extracted-element:active {
+            cursor: grabbing;
+            box-shadow: 0 15px 40px rgba(0, 255, 204, 0.6);
+            transform: scale(1.05); /* Slight pop effect */
+        }
+        .close-btn {
+            position: absolute;
+            top: -12px;
+            right: -12px;
+            width: 24px;
+            height: 24px;
+            background: #ff3366;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 22px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            z-index: 101;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .extracted-element:hover .close-btn {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+
+<div id="loader">
+    <div class="spinner"></div>
+    <h2>SHAPE EXTRACTOR</h2>
+    <p>Loading Computer Vision engine…</p>
+</div>
+
+<a href="../index.html" class="back-btn">← Back</a>
+<div class="hud" id="hud">Tap a shape to extract</div>
+
+<!-- Video Feed -->
+<video id="videoElement" autoplay playsinline muted></video>
+<!-- Output Canvas overlay for bounding boxes -->
+<canvas id="canvasOutput"></canvas>
+
+<script>
+let video = document.getElementById('videoElement');
+let canvasOutput = document.getElementById('canvasOutput');
+let ctx = canvasOutput.getContext('2d');
+let openCvLoaded = false;
+let streaming = false;
+const FPS = 30;
+
+// Store the detected bounding boxes so we can test clicks
+let activeGeometry = [];
+
+// When OpenCV finishes loading from script tag
+function onOpenCvReady() {
+    console.log("OpenCV is ready.");
+    cv = window.cv;
+    openCvLoaded = true;
+    startCamera();
+}
+
+async function startCamera() {
+    const isPortrait = window.innerHeight > window.innerWidth;
+    const constraints = {
+        video: {
+            facingMode: 'environment', // Request back camera!
+            aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+        }
+    };
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video.srcObject = stream;
+        video.play();
+        
+        video.addEventListener('canplay', () => {
+            if (!streaming) {
+                // Ensure canvas matches screen
+                resizeCanvas();
+                streaming = true;
+                document.getElementById('loader').classList.add('fade-out');
+                // Give a short delay to ensure video dimensions are populated
+                setTimeout(scheduleProcessVideo, 500); 
+            }
+        });
+    } catch (err) {
+        console.error("Camera error:", err);
+        alert("Camera error, trying front camera...");
+        // Fallback to front camera if environment fails
+        try {
+            const stream2 = await navigator.mediaDevices.getUserMedia({video: true});
+            video.srcObject = stream2;
+            video.play();
+        } catch (e2) {
+            alert("No camera accessible.");
+        }
+    }
+}
+
+function resizeCanvas() {
+    canvasOutput.width = window.innerWidth;
+    canvasOutput.height = window.innerHeight;
+}
+window.addEventListener('resize', resizeCanvas);
+
+// Setup an offscreen canvas to read raw video frames into OpenCV Mat
+let offscreenCanvas = document.createElement('canvas');
+let offCtx = offscreenCanvas.getContext('2d');
+
+let srcMat, grayMat, blurMat, edgeMat, contours, hierarchy;
+
+function scheduleProcessVideo() {
+    if (!srcMat) {
+        // Initialize Mats
+        offscreenCanvas.width = video.videoWidth;
+        offscreenCanvas.height = video.videoHeight;
+        srcMat = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+        grayMat = new cv.Mat();
+        blurMat = new cv.Mat();
+        edgeMat = new cv.Mat();
+        contours = new cv.MatVector();
+        hierarchy = new cv.Mat();
+    }
+    setTimeout(processVideo, 0);
+}
+
+function processVideo() {
+    if (!streaming || !openCvLoaded) return;
+    
+    let begin = Date.now();
+    
+    // 1. Draw raw video to offscreen canvas
+    // Note: The video uses object-fit 'cover' so its intrinsic size is not the screen size.
+    offCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+    
+    // Read pixel data to OpenCV Mat
+    srcMat.data.set(offCtx.getImageData(0, 0, video.videoWidth, video.videoHeight).data);
+    
+    // 2. Grayscale & Blur
+    cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
+    cv.GaussianBlur(grayMat, blurMat, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
+    
+    // 3. Canny Edge Detection
+    cv.Canny(blurMat, edgeMat, 50, 150);
+    
+    // 4. Find Contours
+    cv.findContours(edgeMat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+    
+    // 5. Clear output canvas
+    ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+    
+    activeGeometry = []; // Reset tracked shapes
+    
+    // Scale factors because canvas is window size but video intrinsic is different
+    // Since we use object-fit cover, we must calculate the zoom factor
+    const videoRatio = video.videoWidth / video.videoHeight;
+    const windowRatio = window.innerWidth / window.innerHeight;
+    
+    let scale = 1;
+    let offsetX = 0;
+    let offsetY = 0;
+    
+    if (windowRatio > videoRatio) {
+        // Window is wider than video (crops top/bottom)
+        scale = window.innerWidth / video.videoWidth;
+        offsetY = (window.innerHeight - (video.videoHeight * scale)) / 2;
+    } else {
+        // Window is taller than video (crops left/right)
+        scale = window.innerHeight / video.videoHeight;
+        offsetX = (window.innerWidth - (video.videoWidth * scale)) / 2;
+    }
+
+    // Prepare to draw shapes
+    ctx.lineWidth = 3;
+    ctx.lineJoin = 'round';
+
+    for (let i = 0; i < contours.size(); ++i) {
+        let contour = contours.get(i);
+        let area = cv.contourArea(contour);
+        
+        // Filter out small noise
+        if (area > 1000) {
+            let tmp = new cv.Mat();
+            let perimeter = cv.arcLength(contour, true);
+            cv.approxPolyDP(contour, tmp, 0.02 * perimeter, true);
+            
+            const vertices = tmp.rows;
+            let shapeName = "";
+            let color = "";
+            let rect = cv.boundingRect(tmp);
+            
+            if (vertices === 3) {
+                shapeName = "Triangle";
+                color = "#ff0088";
+            } else if (vertices === 4) {
+                let aspectRatio = rect.width / rect.height;
+                if (aspectRatio >= 0.90 && aspectRatio <= 1.10) {
+                    shapeName = "Square";
+                    color = "#00ffcc";
+                } else {
+                    shapeName = "Rectangle";
+                    color = "#ffcc00";
+                }
+            } else if (vertices > 6) {
+                shapeName = "Circle";
+                color = "#bb00ff";
+            }
+
+            if (shapeName !== "") {
+                // Map the bounding box back to screen coordinates accounting for object-fit: cover
+                let screenX = (rect.x * scale) + offsetX;
+                let screenY = (rect.y * scale) + offsetY;
+                let screenW = rect.width * scale;
+                let screenH = rect.height * scale;
+                
+                // Only track if it's on the screen
+                if (screenX + screenW > 0 && screenX < window.innerWidth &&
+                    screenY + screenH > 0 && screenY < window.innerHeight) {
+                    
+                    activeGeometry.push({
+                        type: shapeName,
+                        x: screenX,
+                        y: screenY,
+                        w: screenW,
+                        h: screenH,
+                        color: color,
+                        origX: rect.x,
+                        origY: rect.y,
+                        origW: rect.width,
+                        origH: rect.height
+                    });
+
+                    // Draw glow
+                    ctx.shadowBlur = 15;
+                    ctx.shadowColor = color;
+                    ctx.strokeStyle = color;
+                    ctx.strokeRect(screenX, screenY, screenW, screenH);
+                    
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = color;
+                    ctx.font = "14px monospace";
+                    ctx.fillText(shapeName, screenX, screenY - 8);
+                }
+            }
+            tmp.delete();
+        }
+    }
+    
+    let delay = 1000/FPS - (Date.now() - begin);
+    setTimeout(processVideo, delay > 0 ? delay : 0);
+}
+
+// Extraction Interaction
+canvasOutput.addEventListener('click', (e) => {
+    let clickX = e.clientX;
+    let clickY = e.clientY;
+
+    // Search active geometry for a match
+    for (let shape of activeGeometry) {
+        if (clickX >= shape.x && clickX <= shape.x + shape.w &&
+            clickY >= shape.y && clickY <= shape.y + shape.h) {
+            
+            extractShape(shape);
+            break;
+        }
+    }
+});
+
+function extractShape(shape) {
+    // We already have the raw video frame on `offscreenCanvas`. 
+    // We can extract exactly the raw geometry and place it in the DOM!
+    let snapshotCanvas = document.createElement('canvas');
+    snapshotCanvas.width = shape.origW;
+    snapshotCanvas.height = shape.origH;
+    let sxCtx = snapshotCanvas.getContext('2d');
+    
+    // Draw the specific bounding box from the offscreen canvas to our new snapshot
+    sxCtx.drawImage(offscreenCanvas, 
+        shape.origX, shape.origY, shape.origW, shape.origH, 
+        0, 0, shape.origW, shape.origH);
+        
+    // Create UI container
+    let container = document.createElement('div');
+    container.className = 'extracted-element';
+    container.style.left = shape.x + 'px';
+    container.style.top = shape.y + 'px';
+    container.style.width = shape.w + 'px';
+    container.style.height = shape.h + 'px';
+    container.style.borderColor = shape.color;
+    // Box shadow color
+    container.style.boxShadow = `0 10px 30px ${shape.color}66, inset 0 0 15px ${shape.color}44`;
+    
+    // Create inner image
+    let img = document.createElement('img');
+    img.src = snapshotCanvas.toDataURL('image/png');
+    img.style.width = '100%';
+    img.style.height = '100%';
+    img.style.pointerEvents = 'none'; // so dragging container works
+    img.style.borderRadius = '6px';
+    container.appendChild(img);
+
+    // Close button
+    let closeBtn = document.createElement('div');
+    closeBtn.className = 'close-btn';
+    closeBtn.innerHTML = '×';
+    closeBtn.addEventListener('click', (req) => {
+        req.stopPropagation();
+        document.body.removeChild(container);
+    });
+    // For touch devices where hover doesn't work well
+    closeBtn.addEventListener('touchstart', (req) => {
+        req.stopPropagation();
+        document.body.removeChild(container);
+    });
+    container.appendChild(closeBtn);
+
+    document.body.appendChild(container);
+    makeDraggable(container);
+}
+
+// Very basic drag implementation
+function makeDraggable(el) {
+    let isDragging = false;
+    let startX, startY;
+    let initialLeft, initialTop;
+
+    function startDrag(e) {
+        if (e.target.classList.contains('close-btn')) return;
+        isDragging = true;
+        let event = e.type.includes('mouse') ? e : e.touches[0];
+        startX = event.clientX;
+        startY = event.clientY;
+        initialLeft = parseInt(el.style.left || 0);
+        initialTop = parseInt(el.style.top || 0);
+        // Bring to front
+        el.style.zIndex = 1000 + document.querySelectorAll('.extracted-element').length;
+    }
+
+    function moveDrag(e) {
+        if (!isDragging) return;
+        e.preventDefault(); // Prevent scrolling on mobile
+        let event = e.type.includes('mouse') ? e : e.touches[0];
+        let dx = event.clientX - startX;
+        let dy = event.clientY - startY;
+        el.style.left = (initialLeft + dx) + 'px';
+        el.style.top = (initialTop + dy) + 'px';
+    }
+
+    function endDrag() {
+        isDragging = false;
+    }
+
+    el.addEventListener('mousedown', startDrag);
+    window.addEventListener('mousemove', moveDrag);
+    window.addEventListener('mouseup', endDrag);
+
+    el.addEventListener('touchstart', startDrag, {passive: false});
+    window.addEventListener('touchmove', moveDrag, {passive: false});
+    window.addEventListener('touchend', endDrag);
+}
+
+</script>
+</body>
+</html>

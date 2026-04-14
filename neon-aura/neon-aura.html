@@ -729,16 +729,35 @@ function initMediaPipe() {
         updateHum(currentHands);
     });
 
-    const camera = new Camera(videoElement, {
-        onFrame: async () => {
-            await hands.send({image: videoElement});
-        },
-        width: window.innerWidth > window.innerHeight ? 1280 : 720,
-        height: window.innerWidth > window.innerHeight ? 720 : 1280,
-        facingMode: 'user'
-    });
-    
-    camera.start();
+    async function setupCamera() {
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const constraints = {
+            video: {
+                facingMode: 'user',
+                aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+            }
+        };
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            videoElement.srcObject = stream;
+            await new Promise(resolve => {
+                videoElement.onloadedmetadata = () => { resolve(); };
+            });
+            videoElement.play();
+
+            async function detectionFrame() {
+                if (!videoElement.paused && !videoElement.ended) {
+                    await hands.send({ image: videoElement });
+                }
+                requestAnimationFrame(detectionFrame);
+            }
+            detectionFrame();
+        } catch (error) {
+            console.error("Camera access error:", error);
+            alert("Could not access camera in 16:9 ratio. " + error);
+        }
+    }
+    setupCamera();
 }
 
 </script>
