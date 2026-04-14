@@ -28,9 +28,11 @@
             top: 0; left: 0;
             width: 100vw; height: 100vh;
             object-fit: cover;
-            transform: scaleX(-1);
             z-index: 0;
             filter: brightness(0.45) contrast(1.15) saturate(0.8);
+        }
+        #videoEl.mirrored {
+            transform: scaleX(-1);
         }
 
         #drawCanvas {
@@ -138,6 +140,27 @@
         }
         .back-btn:hover { background: rgba(255,255,255,0.1); }
 
+        /* Flip btn */
+        .flip-btn {
+            position: fixed;
+            top: 70px; right: 16px;
+            z-index: 30;
+            background: rgba(10,10,30,0.55);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            width: 44px; height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .flip-btn:hover { background: rgba(255,255,255,0.1); transform: rotate(180deg); }
+        .flip-btn svg { width: 22px; height: 22px; fill: currentColor; }
+
         /* Loading overlay */
         #loader {
             position: fixed;
@@ -185,6 +208,9 @@
 <canvas id="fxCanvas"></canvas>
 
 <a href="../index.html" class="back-btn">← Back</a>
+<div class="flip-btn" id="flipBtn" title="Flip Camera">
+    <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+</div>
 
 <div class="hud">
     <div class="hud-panel">
@@ -214,7 +240,26 @@ const fxCtx   = fxCanvas.getContext('2d');
 let W = window.innerWidth, H = window.innerHeight;
 let time = 0, lastT = performance.now(), fps = 0, fc = 0, fpsT = performance.now();
 let currentHands = [];
+let currentFacingMode = 'user';
+let currentStream = null;
 let drawMode = 'neon';
+
+// Smoothing state
+let smoothedLandmarks = [null, null];
+const alpha = 0.65;
+
+function applyEMA(newPoints, handIdx) {
+    if (!smoothedLandmarks[handIdx] || smoothedLandmarks[handIdx].length !== newPoints.length) {
+        smoothedLandmarks[handIdx] = JSON.parse(JSON.stringify(newPoints));
+        return smoothedLandmarks[handIdx];
+    }
+    for (let i = 0; i < newPoints.length; i++) {
+        smoothedLandmarks[handIdx][i].x = smoothedLandmarks[handIdx][i].x * (1 - alpha) + newPoints[i].x * alpha;
+        smoothedLandmarks[handIdx][i].y = smoothedLandmarks[handIdx][i].y * (1 - alpha) + newPoints[i].y * alpha;
+        smoothedLandmarks[handIdx][i].z = smoothedLandmarks[handIdx][i].z * (1 - alpha) + newPoints[i].z * alpha;
+    }
+    return smoothedLandmarks[handIdx];
+}
 
 // Previous fingertip positions for trail drawing
 let prevTips = {};
@@ -261,9 +306,8 @@ document.getElementById('clearBtn').addEventListener('click', () => {
 
 // ─── COORDINATE MAPPING ──────────────────
 function toScreen(lm) {
-    // MediaPipe gives normalized [0,1] coords. Video is mirrored via CSS scaleX(-1),
-    // so we mirror x here so drawing aligns with what the user sees.
-    return { x: (1 - lm.x) * W, y: lm.y * H };
+    let x = currentFacingMode === 'user' ? (1 - lm.x) : lm.x;
+    return { x: x * W, y: lm.y * H };
 }
 
 // ─── DRAWING MODES ───────────────────────
@@ -607,7 +651,14 @@ function init() {
     });
 
     hands.onResults((results) => {
-        currentHands = results.multiHandLandmarks || [];
+        // Apply smoothing
+        let smoothedResults = [];
+        if (results.multiHandLandmarks) {
+            results.multiHandLandmarks.forEach((rawPts, i) => {
+                smoothedResults.push(applyEMA(rawPts, i));
+            });
+        }
+        currentHands = smoothedResults;
 
         // Hide loader on first result
         const loader = document.getElementById('loader');
@@ -617,15 +668,28 @@ function init() {
     });
 
     async function setupCamera() {
-        const isPortrait = window.innerHeight > window.innerWidth;
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const screenRatio = window.innerWidth / window.innerHeight;
         const constraints = {
             video: {
-                facingMode: 'user',
-                aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+                facingMode: currentFacingMode,
+                aspectRatio: { ideal: screenRatio }
             }
         };
+
+        // Mirroring control
+        if (currentFacingMode === 'user') {
+            video.classList.add('mirrored');
+        } else {
+            video.classList.remove('mirrored');
+        }
+
         try {
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            currentStream = stream;
             video.srcObject = stream;
             await new Promise(resolve => {
                 video.onloadedmetadata = () => { resolve(); };
@@ -641,10 +705,20 @@ function init() {
             detectionFrame();
         } catch (error) {
             console.error("Camera access error:", error);
-            alert("Could not access camera in 16:9 ratio. " + error);
+            if (currentFacingMode === 'environment') {
+                currentFacingMode = 'user';
+                setupCamera();
+            } else {
+                alert("Could not access camera. " + error);
+            }
         }
     }
     
+    document.getElementById('flipBtn').addEventListener('click', () => {
+        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        setupCamera();
+    });
+
     setupCamera();
     requestAnimationFrame(render);
 }

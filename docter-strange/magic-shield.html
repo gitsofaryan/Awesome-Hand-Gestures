@@ -32,9 +32,7 @@
         left: 0;
         width: 100vw;
         height: 100vh;
-        object-fit: contain;
-      }
-      #v_src {
+        object-fit: cover;
       }
       #mainCanvas {
         z-index: 10;
@@ -72,6 +70,27 @@
       }
       .back-btn:hover { background: rgba(255,255,255,0.1); }
 
+      /* Flip btn */
+      .flip-btn {
+          position: fixed;
+          top: 70px; right: 16px;
+          z-index: 210;
+          background: rgba(10,10,30,0.55);
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
+          border: 1px solid rgba(255,255,255,0.1);
+          border-radius: 50%;
+          width: 44px; height: 44px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: #fff;
+          cursor: pointer;
+          transition: all 0.2s;
+      }
+      .flip-btn:hover { background: rgba(255,255,255,0.1); transform: rotate(180deg); }
+      .flip-btn svg { width: 22px; height: 22px; fill: currentColor; }
+
       /* Loading overlay */
       #loader {
           position: fixed;
@@ -106,6 +125,9 @@
         <p>Loading hand tracking model…</p>
     </div>
     <a href="../index.html" class="back-btn">← Back</a>
+    <div class="flip-btn" id="flipBtn" title="Flip Camera">
+        <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+    </div>
 
     <video id="v_src" autoplay playsinline></video>
     <canvas id="mainCanvas"></canvas>
@@ -120,6 +142,25 @@
       let img2 = null;
       let img3 = null;
       let img4 = null;
+      let currentFacingMode = 'user';
+      let currentStream = null;
+
+      // Smoothing state
+      let smoothedRawLandmarks = [null, null];
+      const alpha = 0.65;
+
+      function applyEMA(newPoints, handIdx) {
+        if (!smoothedRawLandmarks[handIdx] || smoothedRawLandmarks[handIdx].length !== newPoints.length) {
+          smoothedRawLandmarks[handIdx] = JSON.parse(JSON.stringify(newPoints));
+          return smoothedRawLandmarks[handIdx];
+        }
+        for (let i = 0; i < newPoints.length; i++) {
+          smoothedRawLandmarks[handIdx][i].x = smoothedRawLandmarks[handIdx][i].x * (1 - alpha) + newPoints[i].x * alpha;
+          smoothedRawLandmarks[handIdx][i].y = smoothedRawLandmarks[handIdx][i].y * (1 - alpha) + newPoints[i].y * alpha;
+          smoothedRawLandmarks[handIdx][i].z = smoothedRawLandmarks[handIdx][i].z * (1 - alpha) + newPoints[i].z * alpha;
+        }
+        return smoothedRawLandmarks[handIdx];
+      }
 
       // Load all magic circle images
       function loadImages() {
@@ -147,22 +188,6 @@
           ring_tip: [lmList[16][0], lmList[16][1]],
           pinky_tip: [lmList[20][0], lmList[20][1]],
         };
-      }
-
-      function drawLine(p1, p2, size = 5) {
-        ctx.lineWidth = size;
-        ctx.strokeStyle = "#3232FF";
-        ctx.beginPath();
-        ctx.moveTo(p1[0], p1[1]);
-        ctx.lineTo(p2[0], p2[1]);
-        ctx.stroke();
-
-        ctx.lineWidth = size / 2;
-        ctx.strokeStyle = "#FFFFFF";
-        ctx.beginPath();
-        ctx.moveTo(p1[0], p1[1]);
-        ctx.lineTo(p2[0], p2[1]);
-        ctx.stroke();
       }
 
       function calculateDistance(p1, p2) {
@@ -266,26 +291,23 @@
         canvasElement.width = vElement.videoWidth;
         canvasElement.height = vElement.videoHeight;
 
-        // --- MIRRORING LIKE INDEX.HTML ---
         ctx.save();
-        ctx.translate(canvasElement.width, 0);
-        ctx.scale(-1, 1);
-        ctx.drawImage(
-          vElement,
-          0,
-          0,
-          canvasElement.width,
-          canvasElement.height,
-        );
+        if (currentFacingMode === 'user') {
+            ctx.translate(canvasElement.width, 0);
+            ctx.scale(-1, 1);
+        }
+        ctx.drawImage(vElement, 0, 0, canvasElement.width, canvasElement.height);
         ctx.restore();
 
         if (res.multiHandLandmarks && res.multiHandedness) {
-          res.multiHandLandmarks.forEach((pts, i) => {
-            // Mirror landmarks: (1 - x) to match mirrored video
-            const lmList = pts.map((lm) => [
-              (1 - lm.x) * canvasElement.width,
-              lm.y * canvasElement.height,
-            ]);
+          res.multiHandLandmarks.forEach((rawPts, i) => {
+            const pts = applyEMA(rawPts, i);
+            
+            // Mirror landmarks ONLY if user camera
+            const lmList = pts.map((lm) => {
+                let x = currentFacingMode === 'user' ? (1 - lm.x) : lm.x;
+                return [x * canvasElement.width, lm.y * canvasElement.height];
+            });
 
             const pos = positionData(lmList);
             const gesture = detectGesture(pos);
@@ -338,15 +360,21 @@
       loadImages();
 
       async function setupCamera() {
-        const isPortrait = window.innerHeight > window.innerWidth;
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const screenRatio = window.innerWidth / window.innerHeight;
         const constraints = {
           video: {
-            facingMode: 'user',
-            aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+            facingMode: currentFacingMode,
+            aspectRatio: { ideal: screenRatio }
           }
         };
+
         try {
           const stream = await navigator.mediaDevices.getUserMedia(constraints);
+          currentStream = stream;
           vElement.srcObject = stream;
           await new Promise(resolve => {
             vElement.onloadedmetadata = () => { resolve(); };
@@ -362,9 +390,20 @@
           detectionFrame();
         } catch (error) {
           console.error("Camera access error:", error);
-          alert("Could not access camera in 16:9 ratio. " + error);
+          if (currentFacingMode === 'environment') {
+              currentFacingMode = 'user';
+              setupCamera();
+          } else {
+              alert("Could not access camera. " + error);
+          }
         }
       }
+
+      document.getElementById('flipBtn').addEventListener('click', () => {
+          currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+          setupCamera();
+      });
+
       setupCamera();
     </script>
   </body>

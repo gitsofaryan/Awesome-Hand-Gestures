@@ -26,8 +26,10 @@
             top: 0; left: 0;
             width: 100%; height: 100%;
             object-fit: cover;
-            /* We don't mirror the back camera! */
             z-index: 1;
+        }
+        #videoElement.mirrored, #canvasOutput.mirrored {
+            transform: scaleX(-1);
         }
 
         #canvasOutput {
@@ -81,6 +83,27 @@
             font-weight: 600;
             cursor: pointer;
         }
+
+        /* Flip btn */
+        .flip-btn {
+            position: fixed;
+            top: 70px; right: 16px;
+            z-index: 50;
+            background: rgba(10,10,30,0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 50%;
+            width: 44px; height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .flip-btn:hover { background: rgba(255,255,255,0.1); transform: rotate(180deg); }
+        .flip-btn svg { width: 22px; height: 22px; fill: currentColor; }
 
         .hud {
             position: fixed;
@@ -146,6 +169,9 @@
 </div>
 
 <a href="../index.html" class="back-btn">← Back</a>
+<div class="flip-btn" id="flipBtn" title="Flip Camera">
+    <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+</div>
 <div class="hud" id="hud">Tap a shape to extract</div>
 
 <!-- Video Feed -->
@@ -159,6 +185,8 @@ let canvasOutput = document.getElementById('canvasOutput');
 let ctx = canvasOutput.getContext('2d');
 let openCvLoaded = false;
 let streaming = false;
+let currentFacingMode = 'environment';
+let currentStream = null;
 const FPS = 30;
 
 // Store the detected bounding boxes so we can test clicks
@@ -173,42 +201,56 @@ function onOpenCvReady() {
 }
 
 async function startCamera() {
-    const isPortrait = window.innerHeight > window.innerWidth;
+    if (currentStream) {
+        currentStream.getTracks().forEach(track => track.stop());
+    }
+
+    const screenRatio = window.innerWidth / window.innerHeight;
     const constraints = {
         video: {
-            facingMode: 'environment', // Request back camera!
-            aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+            facingMode: currentFacingMode,
+            aspectRatio: { ideal: screenRatio }
         }
     };
 
+    // Mirroring control
+    if (currentFacingMode === 'user') {
+        video.classList.add('mirrored');
+        canvasOutput.classList.add('mirrored');
+    } else {
+        video.classList.remove('mirrored');
+        canvasOutput.classList.remove('mirrored');
+    }
+
     try {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        currentStream = stream;
         video.srcObject = stream;
         video.play();
         
         video.addEventListener('canplay', () => {
             if (!streaming) {
-                // Ensure canvas matches screen
                 resizeCanvas();
                 streaming = true;
                 document.getElementById('loader').classList.add('fade-out');
-                // Give a short delay to ensure video dimensions are populated
                 setTimeout(scheduleProcessVideo, 500); 
             }
-        });
+        }, { once: true });
     } catch (err) {
         console.error("Camera error:", err);
-        alert("Camera error, trying front camera...");
-        // Fallback to front camera if environment fails
-        try {
-            const stream2 = await navigator.mediaDevices.getUserMedia({video: true});
-            video.srcObject = stream2;
-            video.play();
-        } catch (e2) {
-            alert("No camera accessible.");
+        if (currentFacingMode === 'environment') {
+            currentFacingMode = 'user';
+            startCamera();
+        } else {
+            alert("Camera error: " + err);
         }
     }
 }
+
+document.getElementById('flipBtn').addEventListener('click', () => {
+    currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+    startCamera();
+});
 
 function resizeCanvas() {
     canvasOutput.width = window.innerWidth;
@@ -370,7 +412,13 @@ canvasOutput.addEventListener('click', (e) => {
 
     // Search active geometry for a match
     for (let shape of activeGeometry) {
-        if (clickX >= shape.x && clickX <= shape.x + shape.w &&
+        let testX = clickX;
+        // If mirrored, we need to flip the clickX to match the internal coordinate system
+        if (currentFacingMode === 'user') {
+            testX = window.innerWidth - clickX;
+        }
+
+        if (testX >= shape.x && testX <= shape.x + shape.w &&
             clickY >= shape.y && clickY <= shape.y + shape.h) {
             
             extractShape(shape);
