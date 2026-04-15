@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Physics Playground — Hand Tracking AR</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Outfit', sans-serif;
+            color: #fff;
+            touch-action: none;
+        }
+
+        #videoEl {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            object-fit: contain;
+            z-index: 0;
+            filter: brightness(0.4) contrast(1.1) saturate(0.7);
+        }
+        #videoEl.mirrored { transform: scaleX(-1); }
+
+        #physCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        .hud {
+            position: fixed;
+            top: 16px; left: 16px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .hud-panel {
+            background: rgba(10, 10, 30, 0.55);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 14px;
+            padding: 10px 16px;
+            font-size: 0.78rem;
+            color: rgba(255,255,255,0.7);
+            min-width: 140px;
+        }
+        .hud-panel .val { color: #ffa94d; font-weight: 700; }
+
+        .back-btn {
+            position: fixed;
+            top: 16px; right: 16px;
+            z-index: 20;
+            background: rgba(10,10,30,0.55);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 10px 18px;
+            color: #fff;
+            text-decoration: none;
+            font-size: 0.82rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.1); }
+
+        .flip-btn {
+            position: fixed;
+            top: 66px; right: 16px;
+            z-index: 30;
+            background: rgba(10,10,30,0.55);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            width: 44px; height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .flip-btn:hover { background: rgba(255,255,255,0.1); transform: rotate(180deg); }
+        .flip-btn svg { width: 22px; height: 22px; fill: currentColor; }
+
+        #loader {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0,0,0,0.92);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.6s;
+        }
+        #loader h2 { font-weight: 300; letter-spacing: 3px; font-size: 1.4rem; }
+        #loader p { color: #666; font-size: 0.9rem; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top-color: #ffa94d;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); }}
+        .fade-out { opacity: 0; pointer-events: none; }
+
+        .toolbar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            gap: 6px;
+            background: rgba(10,10,30,0.6);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 40px;
+            padding: 6px 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            max-width: 95vw;
+        }
+        .tool-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: rgba(255,255,255,0.65);
+            padding: 8px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+        .tool-btn.active {
+            background: rgba(255,255,255,0.12);
+            border-color: rgba(255,255,255,0.25);
+            color: #fff;
+        }
+        .tool-btn:hover { color: #fff; }
+
+        @media (max-width: 600px) {
+            .hud { top: 10px; left: 10px; }
+            .hud-panel { padding: 6px 10px; font-size: 0.68rem; min-width: 110px; }
+            .toolbar { bottom: 12px; padding: 5px 8px; gap: 4px; }
+            .tool-btn { padding: 6px 10px; font-size: 0.65rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loader">
+    <div class="spinner"></div>
+    <h2>PHYSICS PLAYGROUND</h2>
+    <p>Loading hand tracking model…</p>
+</div>
+
+<video id="videoEl" autoplay playsinline></video>
+<canvas id="physCanvas"></canvas>
+
+<a href="../index.html" class="back-btn">← Back</a>
+<div class="flip-btn" id="flipBtn" title="Flip Camera">
+    <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+</div>
+
+<div class="hud">
+    <div class="hud-panel">
+        Balls: <span class="val" id="h-balls">0</span> &ensp;|&ensp;FPS: <span class="val" id="h-fps">0</span>
+    </div>
+    <div class="hud-panel">
+        Mode: <span class="val" id="h-mode">Bouncy Balls</span>
+    </div>
+</div>
+
+<div class="toolbar">
+    <button class="tool-btn active" data-mode="balls">🔵 Balls</button>
+    <button class="tool-btn" data-mode="bubbles">🫧 Bubbles</button>
+    <button class="tool-btn" data-mode="blocks">🟧 Blocks</button>
+    <button class="tool-btn" data-mode="rain">🌧️ Rain</button>
+    <button class="tool-btn" id="clearBtn" style="color:#ff6b6b;">🗑 Clear</button>
+</div>
+
+<script>
+// ─── GLOBALS ──────────────────────────────
+const video = document.getElementById('videoEl');
+const canvas = document.getElementById('physCanvas');
+const ctx = canvas.getContext('2d');
+
+let W = window.innerWidth, H = window.innerHeight;
+let time = 0, lastT = performance.now(), fps = 0, fc = 0, fpsT = performance.now();
+let currentHands = [];
+let currentFacingMode = 'user';
+let currentStream = null;
+let physMode = 'balls';
+
+// Smoothing
+let smoothedLandmarks = [null, null];
+const alpha = 0.6;
+
+function applyEMA(newPoints, handIdx) {
+    if (!smoothedLandmarks[handIdx] || smoothedLandmarks[handIdx].length !== newPoints.length) {
+        smoothedLandmarks[handIdx] = JSON.parse(JSON.stringify(newPoints));
+        return smoothedLandmarks[handIdx];
+    }
+    for (let i = 0; i < newPoints.length; i++) {
+        smoothedLandmarks[handIdx][i].x = smoothedLandmarks[handIdx][i].x * (1 - alpha) + newPoints[i].x * alpha;
+        smoothedLandmarks[handIdx][i].y = smoothedLandmarks[handIdx][i].y * (1 - alpha) + newPoints[i].y * alpha;
+        smoothedLandmarks[handIdx][i].z = smoothedLandmarks[handIdx][i].z * (1 - alpha) + newPoints[i].z * alpha;
+    }
+    return smoothedLandmarks[handIdx];
+}
+
+// ─── PHYSICS OBJECTS ─────────────────────
+let objects = [];
+const GRAVITY = 0.35;
+const BOUNCE = 0.65;
+const FRICTION = 0.99;
+const MAX_OBJECTS = 80;
+
+// Ball colors
+const ballColors = [
+    { fill: '#ff6b6b', stroke: '#ff4444', glow: 'rgba(255,100,100,0.4)' },
+    { fill: '#ffa94d', stroke: '#ff8800', glow: 'rgba(255,170,70,0.4)' },
+    { fill: '#ffd43b', stroke: '#ffcc00', glow: 'rgba(255,210,60,0.4)' },
+    { fill: '#69db7c', stroke: '#44cc55', glow: 'rgba(100,220,120,0.4)' },
+    { fill: '#4dabf7', stroke: '#2299ff', glow: 'rgba(80,170,250,0.4)' },
+    { fill: '#748ffc', stroke: '#5566ff', glow: 'rgba(120,140,255,0.4)' },
+    { fill: '#b197fc', stroke: '#9966ff', glow: 'rgba(180,150,255,0.4)' },
+    { fill: '#f783ac', stroke: '#ff5588', glow: 'rgba(250,130,170,0.4)' },
+];
+
+let spawnTimer = 0;
+const SPAWN_INTERVAL = 0.4; // seconds between spawns
+
+function spawnObject() {
+    if (objects.length >= MAX_OBJECTS) return;
+
+    const col = ballColors[Math.floor(Math.random() * ballColors.length)];
+    const x = Math.random() * (W * 0.8) + W * 0.1;
+
+    if (physMode === 'balls') {
+        const r = 12 + Math.random() * 20;
+        objects.push({
+            type: 'ball',
+            x: x, y: -r * 2,
+            vx: (Math.random() - 0.5) * 2,
+            vy: 0,
+            r: r,
+            mass: r * r,
+            color: col,
+            rotation: 0,
+            rotSpeed: (Math.random() - 0.5) * 0.15,
+        });
+    } else if (physMode === 'bubbles') {
+        const r = 15 + Math.random() * 30;
+        objects.push({
+            type: 'bubble',
+            x: x, y: H + r * 2,
+            vx: (Math.random() - 0.5) * 1.5,
+            vy: -(1.5 + Math.random() * 2),
+            r: r,
+            mass: r,
+            color: col,
+            rotation: 0,
+            rotSpeed: 0,
+            life: 1.0,
+        });
+    } else if (physMode === 'blocks') {
+        const s = 16 + Math.random() * 24;
+        objects.push({
+            type: 'block',
+            x: x, y: -s * 2,
+            vx: (Math.random() - 0.5) * 2,
+            vy: 0,
+            r: s,
+            mass: s * s,
+            color: col,
+            rotation: Math.random() * Math.PI * 2,
+            rotSpeed: (Math.random() - 0.5) * 0.1,
+        });
+    } else if (physMode === 'rain') {
+        const r = 3 + Math.random() * 4;
+        objects.push({
+            type: 'rain',
+            x: Math.random() * W, y: -10,
+            vx: (Math.random() - 0.5) * 0.5,
+            vy: 4 + Math.random() * 6,
+            r: r,
+            mass: r,
+            color: { fill: 'rgba(100,180,255,0.6)', stroke: 'rgba(60,140,255,0.8)', glow: 'rgba(60,140,255,0.3)' },
+            rotation: 0,
+            rotSpeed: 0,
+        });
+    }
+}
+
+// ─── SETUP ────────────────────────────────
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W;
+    canvas.height = H;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Toolbar
+document.querySelectorAll('.tool-btn:not(#clearBtn)').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tool-btn:not(#clearBtn)').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        physMode = btn.dataset.mode;
+        document.getElementById('h-mode').textContent = btn.textContent.trim();
+    });
+});
+document.getElementById('clearBtn').addEventListener('click', () => {
+    objects = [];
+});
+
+// ─── COORDINATE MAPPING ──────────────────
+function toScreen(lm) {
+    let x = currentFacingMode === 'user' ? (1 - lm.x) : lm.x;
+    return { x: x * W, y: lm.y * H };
+}
+
+// ─── HAND COLLISION SEGMENTS ─────────────
+// Build line segments from hand landmarks that objects collide with
+function getHandSegments() {
+    const segments = [];
+
+    // Define the hand outline as connected landmark indices
+    const palmOutline = [0, 1, 2, 3, 4]; // thumb
+    const indexFinger = [0, 5, 6, 7, 8];
+    const middleFinger = [0, 9, 10, 11, 12];
+    const ringFinger = [0, 13, 14, 15, 16];
+    const pinkyFinger = [0, 17, 18, 19, 20];
+    const palmBase = [5, 9, 13, 17, 0]; // palm outline connecting bases
+
+    const chains = [palmOutline, indexFinger, middleFinger, ringFinger, pinkyFinger, palmBase];
+
+    currentHands.forEach(hand => {
+        chains.forEach(chain => {
+            for (let i = 0; i < chain.length - 1; i++) {
+                const p1 = toScreen(hand[chain[i]]);
+                const p2 = toScreen(hand[chain[i + 1]]);
+                segments.push({ x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y });
+            }
+        });
+    });
+
+    return segments;
+}
+
+// Check collision between a circle and a line segment
+function circleSegmentCollision(cx, cy, r, x1, y1, x2, y2) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return null;
+
+    let t = ((cx - x1) * dx + (cy - y1) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+
+    const nearX = x1 + t * dx;
+    const nearY = y1 + t * dy;
+
+    const distX = cx - nearX;
+    const distY = cy - nearY;
+    const dist = Math.sqrt(distX * distX + distY * distY);
+
+    if (dist < r + 8) { // 8px padding for hand thickness
+        const overlap = (r + 8) - dist;
+        const nx = dist > 0 ? distX / dist : 0;
+        const ny = dist > 0 ? distY / dist : -1;
+        return { nx, ny, overlap, contactX: nearX, contactY: nearY };
+    }
+    return null;
+}
+
+// Ball-to-ball collision
+function ballBallCollision(a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const minDist = a.r + b.r;
+
+    if (dist < minDist && dist > 0) {
+        const nx = dx / dist;
+        const ny = dy / dist;
+        const overlap = minDist - dist;
+
+        // Separate
+        const totalMass = a.mass + b.mass;
+        a.x -= nx * overlap * (b.mass / totalMass);
+        a.y -= ny * overlap * (b.mass / totalMass);
+        b.x += nx * overlap * (a.mass / totalMass);
+        b.y += ny * overlap * (a.mass / totalMass);
+
+        // Velocity exchange
+        const dvx = a.vx - b.vx;
+        const dvy = a.vy - b.vy;
+        const dvn = dvx * nx + dvy * ny;
+
+        if (dvn > 0) {
+            const impulse = dvn / totalMass;
+            a.vx -= impulse * b.mass * nx * (1 + BOUNCE);
+            a.vy -= impulse * b.mass * ny * (1 + BOUNCE);
+            b.vx += impulse * a.mass * nx * (1 + BOUNCE);
+            b.vy += impulse * a.mass * ny * (1 + BOUNCE);
+        }
+    }
+}
+
+// ─── PHYSICS UPDATE ──────────────────────
+function updatePhysics(dt) {
+    const segments = getHandSegments();
+
+    // Spawn new objects
+    spawnTimer += dt;
+    const interval = physMode === 'rain' ? 0.05 : SPAWN_INTERVAL;
+    while (spawnTimer >= interval) {
+        spawnObject();
+        spawnTimer -= interval;
+    }
+
+    for (let i = objects.length - 1; i >= 0; i--) {
+        const obj = objects[i];
+
+        // Apply gravity (upward for bubbles)
+        if (obj.type === 'bubble') {
+            obj.vy += -0.05; // float up
+            obj.vx += Math.sin(time * 3 + obj.x * 0.01) * 0.03; // gentle sway
+            obj.life -= dt * 0.15;
+            if (obj.life <= 0 || obj.y < -obj.r * 2) {
+                objects.splice(i, 1);
+                continue;
+            }
+        } else {
+            obj.vy += GRAVITY;
+        }
+
+        // Apply velocity
+        obj.x += obj.vx;
+        obj.y += obj.vy;
+        obj.vx *= FRICTION;
+        obj.rotation += obj.rotSpeed;
+
+        // Collision with hand segments
+        for (const seg of segments) {
+            const col = circleSegmentCollision(obj.x, obj.y, obj.r, seg.x1, seg.y1, seg.x2, seg.y2);
+            if (col) {
+                // Push out of collision
+                obj.x += col.nx * col.overlap;
+                obj.y += col.ny * col.overlap;
+
+                // Reflect velocity
+                const dotN = obj.vx * col.nx + obj.vy * col.ny;
+                obj.vx = (obj.vx - 2 * dotN * col.nx) * BOUNCE;
+                obj.vy = (obj.vy - 2 * dotN * col.ny) * BOUNCE;
+
+                // Add some spin on collision
+                obj.rotSpeed += (Math.random() - 0.5) * 0.1;
+
+                // Pop bubbles on touch
+                if (obj.type === 'bubble') {
+                    obj.life = 0;
+                }
+            }
+        }
+
+        // Wall collisions
+        if (obj.x - obj.r < 0) {
+            obj.x = obj.r;
+            obj.vx = Math.abs(obj.vx) * BOUNCE;
+        }
+        if (obj.x + obj.r > W) {
+            obj.x = W - obj.r;
+            obj.vx = -Math.abs(obj.vx) * BOUNCE;
+        }
+
+        // Floor collision
+        if (obj.y + obj.r > H) {
+            obj.y = H - obj.r;
+            obj.vy = -Math.abs(obj.vy) * BOUNCE;
+            obj.vx *= 0.95;
+            if (Math.abs(obj.vy) < 0.5) obj.vy = 0;
+        }
+
+        // Remove if off-screen (below floor for non-bubbles, above ceiling for rain)
+        if (obj.y > H + 100 || (obj.type === 'rain' && obj.y > H + 10)) {
+            objects.splice(i, 1);
+            continue;
+        }
+    }
+
+    // Ball-to-ball collisions
+    for (let i = 0; i < objects.length; i++) {
+        for (let j = i + 1; j < objects.length; j++) {
+            if (objects[i].type === 'rain' || objects[j].type === 'rain') continue;
+            ballBallCollision(objects[i], objects[j]);
+        }
+    }
+}
+
+// ─── RENDERING ───────────────────────────
+function drawBall3D(ctx, obj) {
+    const { x, y, r, color, rotation } = obj;
+
+    ctx.save();
+
+    if (obj.type === 'bubble') {
+        // Bubble: transparent with highlight
+        ctx.globalAlpha = obj.life * 0.6;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = color.stroke;
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Highlight
+        const hlGrad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, r * 0.05, x, y, r);
+        hlGrad.addColorStop(0, 'rgba(255,255,255,0.4)');
+        hlGrad.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+        hlGrad.addColorStop(1, 'transparent');
+        ctx.fillStyle = hlGrad;
+        ctx.fill();
+
+        ctx.globalAlpha = 1;
+    } else if (obj.type === 'block') {
+        // Rotating block
+        ctx.translate(x, y);
+        ctx.rotate(rotation);
+
+        // Shadow
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = color.glow;
+
+        ctx.fillStyle = color.fill;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+        ctx.strokeStyle = color.stroke;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-r, -r, r * 2, r * 2);
+
+        // 3D highlight
+        const grad = ctx.createLinearGradient(-r, -r, r, r);
+        grad.addColorStop(0, 'rgba(255,255,255,0.25)');
+        grad.addColorStop(0.5, 'transparent');
+        grad.addColorStop(1, 'rgba(0,0,0,0.15)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(-r, -r, r * 2, r * 2);
+
+        ctx.shadowBlur = 0;
+    } else if (obj.type === 'rain') {
+        // Rain drop
+        ctx.beginPath();
+        ctx.ellipse(x, y, r * 0.4, r, 0, 0, Math.PI * 2);
+        ctx.fillStyle = color.fill;
+        ctx.fill();
+    } else {
+        // 3D-looking ball with gradient lighting
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = color.glow;
+
+        // Main sphere
+        const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, r * 0.1, x, y, r);
+        grad.addColorStop(0, '#fff');
+        grad.addColorStop(0.15, color.fill);
+        grad.addColorStop(0.7, color.stroke);
+        grad.addColorStop(1, 'rgba(0,0,0,0.3)');
+
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // Specular highlight
+        const hlGrad = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, 0, x - r * 0.2, y - r * 0.2, r * 0.5);
+        hlGrad.addColorStop(0, 'rgba(255,255,255,0.7)');
+        hlGrad.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = hlGrad;
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+    }
+
+    ctx.restore();
+}
+
+function drawHandSkeleton() {
+    currentHands.forEach(hand => {
+        ctx.globalAlpha = 0.4;
+        if (typeof drawConnectors !== 'undefined' && typeof HAND_CONNECTIONS !== 'undefined') {
+            drawConnectors(ctx, hand, HAND_CONNECTIONS, {
+                color: 'rgba(255, 170, 80, 0.35)',
+                lineWidth: 2
+            });
+        }
+        ctx.globalAlpha = 1;
+
+        // Draw fingertip glow
+        [4, 8, 12, 16, 20].forEach(idx => {
+            const pt = toScreen(hand[idx]);
+            const glow = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 16);
+            glow.addColorStop(0, 'rgba(255, 170, 80, 0.6)');
+            glow.addColorStop(1, 'transparent');
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2);
+            ctx.fillStyle = glow;
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = '#ffa94d';
+            ctx.fill();
+        });
+
+        // Draw palm collision surface hint
+        const palmPts = [0, 5, 9, 13, 17].map(i => toScreen(hand[i]));
+        ctx.beginPath();
+        ctx.moveTo(palmPts[0].x, palmPts[0].y);
+        palmPts.forEach(pt => ctx.lineTo(pt.x, pt.y));
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255, 170, 80, 0.06)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 170, 80, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+    });
+}
+
+// ─── RENDER LOOP ─────────────────────────
+function render(ts) {
+    requestAnimationFrame(render);
+    const dt = Math.min((ts - lastT) / 1000, 0.05); // cap dt
+    lastT = ts;
+    time += dt;
+
+    fc++;
+    if (ts > fpsT + 1000) {
+        fps = fc; fc = 0; fpsT = ts;
+        document.getElementById('h-fps').textContent = fps;
+    }
+
+    ctx.clearRect(0, 0, W, H);
+
+    // Update physics
+    updatePhysics(dt);
+
+    // Draw hand skeleton
+    if (currentHands.length > 0) {
+        drawHandSkeleton();
+    }
+
+    // Draw all objects
+    objects.forEach(obj => drawBall3D(ctx, obj));
+
+    // Update HUD
+    document.getElementById('h-balls').textContent = objects.length;
+}
+
+// ─── MEDIAPIPE INIT ──────────────────────
+function init() {
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+        let smoothed = [];
+        if (results.multiHandLandmarks) {
+            results.multiHandLandmarks.forEach((rawPts, i) => {
+                smoothed.push(applyEMA(rawPts, i));
+            });
+        }
+        currentHands = smoothed;
+
+        const loader = document.getElementById('loader');
+        if (loader && !loader.classList.contains('fade-out')) {
+            loader.classList.add('fade-out');
+        }
+    });
+
+    async function setupCamera() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const constraints = {
+            video: {
+                facingMode: currentFacingMode,
+                aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+            }
+        };
+
+        if (currentFacingMode === 'user') {
+            video.classList.add('mirrored');
+        } else {
+            video.classList.remove('mirrored');
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            currentStream = stream;
+            video.srcObject = stream;
+            await new Promise(resolve => {
+                video.onloadedmetadata = () => { resolve(); };
+            });
+            video.play();
+
+            async function detectionFrame() {
+                if (!video.paused && !video.ended) {
+                    await hands.send({ image: video });
+                }
+                requestAnimationFrame(detectionFrame);
+            }
+            detectionFrame();
+        } catch (error) {
+            console.error("Camera access error:", error);
+            if (currentFacingMode === 'environment') {
+                currentFacingMode = 'user';
+                setupCamera();
+            } else {
+                alert("Could not access camera. " + error);
+            }
+        }
+    }
+
+    document.getElementById('flipBtn').addEventListener('click', () => {
+        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        setupCamera();
+    });
+
+    setupCamera();
+    requestAnimationFrame(render);
+}
+
+init();
+</script>
+</body>
+</html>

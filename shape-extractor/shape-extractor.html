@@ -166,11 +166,11 @@
             transform: scale(1.15);
         }
 
-        /* Resize handles */
+        /* Resize handles - large touch targets on mobile */
         .resize-handle {
             position: absolute;
-            width: 14px;
-            height: 14px;
+            width: 18px;
+            height: 18px;
             background: #00ffcc;
             border: 2px solid #fff;
             border-radius: 50%;
@@ -178,15 +178,43 @@
             cursor: nwse-resize;
             box-shadow: 0 0 6px rgba(0,255,204,0.6);
             transition: transform 0.1s;
+            touch-action: none;
+            /* Invisible padding for bigger touch target */
+        }
+        .resize-handle::before {
+            content: '';
+            position: absolute;
+            top: -15px; left: -15px;
+            width: 48px; height: 48px;
+            border-radius: 50%;
         }
         .resize-handle:hover, .resize-handle:active {
             transform: scale(1.3);
             background: #fff;
         }
-        .resize-handle.tl { top: -7px; left: -7px; cursor: nwse-resize; }
-        .resize-handle.tr { top: -7px; right: -7px; cursor: nesw-resize; }
-        .resize-handle.bl { bottom: -7px; left: -7px; cursor: nesw-resize; }
-        .resize-handle.br { bottom: -7px; right: -7px; cursor: nwse-resize; }
+        .resize-handle.tl { top: -9px; left: -9px; cursor: nwse-resize; }
+        .resize-handle.tr { top: -9px; right: -9px; cursor: nesw-resize; }
+        .resize-handle.bl { bottom: -9px; left: -9px; cursor: nesw-resize; }
+        .resize-handle.br { bottom: -9px; right: -9px; cursor: nwse-resize; }
+
+        @media (max-width: 768px) {
+            .resize-handle {
+                width: 24px;
+                height: 24px;
+            }
+            .resize-handle.tl { top: -12px; left: -12px; }
+            .resize-handle.tr { top: -12px; right: -12px; }
+            .resize-handle.bl { bottom: -12px; left: -12px; }
+            .resize-handle.br { bottom: -12px; right: -12px; }
+            .close-btn {
+                width: 34px;
+                height: 34px;
+                line-height: 30px;
+                font-size: 20px;
+                top: -17px;
+                right: -17px;
+            }
+        }
 
         /* Shape label */
         .shape-label {
@@ -309,6 +337,7 @@ let offscreenCanvas = document.createElement('canvas');
 let offCtx = offscreenCanvas.getContext('2d');
 
 let srcMat, grayMat, blurMat, edgeMat, contours, hierarchy;
+let hsvMat, skinMask, skinContours, skinHierarchy;
 
 function scheduleProcessVideo() {
     if (!srcMat) {
@@ -321,6 +350,10 @@ function scheduleProcessVideo() {
         edgeMat = new cv.Mat();
         contours = new cv.MatVector();
         hierarchy = new cv.Mat();
+        hsvMat = new cv.Mat();
+        skinMask = new cv.Mat();
+        skinContours = new cv.MatVector();
+        skinHierarchy = new cv.Mat();
     }
     setTimeout(processVideo, 0);
 }
@@ -330,30 +363,27 @@ function processVideo() {
     
     let begin = Date.now();
     
-    // 1. Draw raw video to offscreen canvas
-    // Note: The video uses object-fit 'cover' so its intrinsic size is not the screen size.
     offCtx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
-    
-    // Read pixel data to OpenCV Mat
     srcMat.data.set(offCtx.getImageData(0, 0, video.videoWidth, video.videoHeight).data);
     
-    // 2. Grayscale & Blur
+    // Grayscale & Blur
     cv.cvtColor(srcMat, grayMat, cv.COLOR_RGBA2GRAY);
     cv.GaussianBlur(grayMat, blurMat, new cv.Size(5, 5), 0, 0, cv.BORDER_DEFAULT);
     
-    // 3. Canny Edge Detection
+    // Canny Edge Detection
     cv.Canny(blurMat, edgeMat, 50, 150);
     
-    // 4. Find Contours
+    // Find Contours
+    contours.delete();
+    hierarchy.delete();
+    contours = new cv.MatVector();
+    hierarchy = new cv.Mat();
     cv.findContours(edgeMat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
     
-    // 5. Clear output canvas
     ctx.clearRect(0, 0, canvasOutput.width, canvasOutput.height);
+    activeGeometry = [];
     
-    activeGeometry = []; // Reset tracked shapes
-    
-    // Scale factors because canvas is window size but video intrinsic is different
-    // Since we use object-fit cover, we must calculate the zoom factor
+    // Scale factors for object-fit: contain
     const videoRatio = video.videoWidth / video.videoHeight;
     const windowRatio = window.innerWidth / window.innerHeight;
     
@@ -361,27 +391,23 @@ function processVideo() {
     let offsetX = 0;
     let offsetY = 0;
     
-    // object-fit: contain → fit inside, no cropping
     if (windowRatio > videoRatio) {
-        // Window is wider than video (letterbox left/right)
         scale = window.innerHeight / video.videoHeight;
         offsetX = (window.innerWidth - (video.videoWidth * scale)) / 2;
     } else {
-        // Window is taller than video (letterbox top/bottom)
         scale = window.innerWidth / video.videoWidth;
         offsetY = (window.innerHeight - (video.videoHeight * scale)) / 2;
     }
 
-    // Prepare to draw shapes
     ctx.lineWidth = 3;
     ctx.lineJoin = 'round';
 
+    // --- SHAPE DETECTION ---
     for (let i = 0; i < contours.size(); ++i) {
         let contour = contours.get(i);
         let area = cv.contourArea(contour);
         
-        // Filter out small noise
-        if (area > 1000) {
+        if (area > 800) {
             let tmp = new cv.Mat();
             let perimeter = cv.arcLength(contour, true);
             cv.approxPolyDP(contour, tmp, 0.02 * perimeter, true);
@@ -390,6 +416,9 @@ function processVideo() {
             let shapeName = "";
             let color = "";
             let rect = cv.boundingRect(tmp);
+            
+            // Circularity check: 4π·area / perimeter²  (1.0 = perfect circle)
+            let circularity = (4 * Math.PI * area) / (perimeter * perimeter);
             
             if (vertices === 3) {
                 shapeName = "Triangle";
@@ -403,19 +432,33 @@ function processVideo() {
                     shapeName = "Rectangle";
                     color = "#ffcc00";
                 }
+            } else if (vertices === 5) {
+                shapeName = "Pentagon";
+                color = "#ff6600";
+            } else if (vertices === 6) {
+                shapeName = "Hexagon";
+                color = "#00ccff";
+            } else if (vertices > 6 && circularity > 0.65) {
+                // High circularity = sphere/circle
+                let ar = rect.width / rect.height;
+                if (ar >= 0.7 && ar <= 1.4) {
+                    shapeName = "Sphere";
+                    color = "#bb00ff";
+                } else {
+                    shapeName = "Ellipse";
+                    color = "#ff44aa";
+                }
             } else if (vertices > 6) {
-                shapeName = "Circle";
-                color = "#bb00ff";
+                shapeName = "Polygon";
+                color = "#88aaff";
             }
 
             if (shapeName !== "") {
-                // Map the bounding box back to screen coordinates accounting for object-fit: cover
                 let screenX = (rect.x * scale) + offsetX;
                 let screenY = (rect.y * scale) + offsetY;
                 let screenW = rect.width * scale;
                 let screenH = rect.height * scale;
                 
-                // Only track if it's on the screen
                 if (screenX + screenW > 0 && screenX < window.innerWidth &&
                     screenY + screenH > 0 && screenY < window.innerHeight) {
                     
@@ -432,11 +475,18 @@ function processVideo() {
                         origH: rect.height
                     });
 
-                    // Draw glow
                     ctx.shadowBlur = 15;
                     ctx.shadowColor = color;
                     ctx.strokeStyle = color;
-                    ctx.strokeRect(screenX, screenY, screenW, screenH);
+                    
+                    // Draw circle/sphere with ellipse, others with rect
+                    if (shapeName === 'Sphere' || shapeName === 'Ellipse') {
+                        ctx.beginPath();
+                        ctx.ellipse(screenX + screenW/2, screenY + screenH/2, screenW/2, screenH/2, 0, 0, Math.PI * 2);
+                        ctx.stroke();
+                    } else {
+                        ctx.strokeRect(screenX, screenY, screenW, screenH);
+                    }
                     
                     ctx.shadowBlur = 0;
                     ctx.fillStyle = color;
@@ -447,6 +497,83 @@ function processVideo() {
             tmp.delete();
         }
     }
+
+    // --- FACE / SKIN DETECTION ---
+    try {
+        let rgbMat = new cv.Mat();
+        cv.cvtColor(srcMat, rgbMat, cv.COLOR_RGBA2RGB);
+        cv.cvtColor(rgbMat, hsvMat, cv.COLOR_RGB2HSV);
+        
+        // Skin color range in HSV
+        let low = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), [0, 30, 60, 0]);
+        let high = new cv.Mat(hsvMat.rows, hsvMat.cols, hsvMat.type(), [25, 175, 255, 255]);
+        cv.inRange(hsvMat, low, high, skinMask);
+        
+        // Morphological cleanup
+        let kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(9, 9));
+        cv.morphologyEx(skinMask, skinMask, cv.MORPH_CLOSE, kernel);
+        cv.morphologyEx(skinMask, skinMask, cv.MORPH_OPEN, kernel);
+        
+        skinContours.delete();
+        skinHierarchy.delete();
+        skinContours = new cv.MatVector();
+        skinHierarchy = new cv.Mat();
+        cv.findContours(skinMask, skinContours, skinHierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        
+        for (let i = 0; i < skinContours.size(); i++) {
+            let cnt = skinContours.get(i);
+            let area = cv.contourArea(cnt);
+            
+            // Faces are large skin-colored blobs with roughly round aspect ratio
+            if (area > 5000) {
+                let rect = cv.boundingRect(cnt);
+                let aspectRatio = rect.width / rect.height;
+                
+                // Face-like proportions (roughly oval, not too wide/narrow)
+                if (aspectRatio > 0.5 && aspectRatio < 1.1 && rect.height > 40) {
+                    let screenX = (rect.x * scale) + offsetX;
+                    let screenY = (rect.y * scale) + offsetY;
+                    let screenW = rect.width * scale;
+                    let screenH = rect.height * scale;
+                    
+                    if (screenX + screenW > 0 && screenX < window.innerWidth &&
+                        screenY + screenH > 0 && screenY < window.innerHeight) {
+                        
+                        let faceColor = '#ff9500';
+                        activeGeometry.push({
+                            type: 'Face',
+                            x: screenX,
+                            y: screenY,
+                            w: screenW,
+                            h: screenH,
+                            color: faceColor,
+                            origX: rect.x,
+                            origY: rect.y,
+                            origW: rect.width,
+                            origH: rect.height
+                        });
+                        
+                        ctx.shadowBlur = 15;
+                        ctx.shadowColor = faceColor;
+                        ctx.strokeStyle = faceColor;
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.ellipse(screenX + screenW/2, screenY + screenH/2, screenW/2, screenH/2, 0, 0, Math.PI * 2);
+                        ctx.stroke();
+                        ctx.shadowBlur = 0;
+                        ctx.fillStyle = faceColor;
+                        ctx.font = "14px monospace";
+                        ctx.fillText('👤 Face', screenX, screenY - 8);
+                    }
+                }
+            }
+        }
+        
+        rgbMat.delete();
+        low.delete();
+        high.delete();
+        kernel.delete();
+    } catch(e) { /* skin detection may fail on some frames */ }
     
     let delay = 1000/FPS - (Date.now() - begin);
     setTimeout(processVideo, delay > 0 ? delay : 0);
@@ -557,6 +684,7 @@ function makeDraggableAndResizable(el) {
         if (e.target.classList.contains('close-btn')) return;
         
         let ev = getEvent(e);
+        if (!ev) return;
         startX = ev.clientX;
         startY = ev.clientY;
         initialLeft = parseInt(el.style.left) || 0;
@@ -569,10 +697,22 @@ function makeDraggableAndResizable(el) {
         el.classList.add('selected');
         el.style.zIndex = 1000 + document.querySelectorAll('.extracted-element').length;
 
-        if (e.target.classList.contains('resize-handle')) {
-            isResizing = true;
-            resizeCorner = e.target.dataset.corner;
+        // Check if target or any ancestor is a resize handle
+        let target = e.target;
+        let isHandle = false;
+        while (target && target !== el) {
+            if (target.classList && target.classList.contains('resize-handle')) {
+                isHandle = true;
+                isResizing = true;
+                resizeCorner = target.dataset.corner;
+                break;
+            }
+            target = target.parentElement;
+        }
+        
+        if (isHandle) {
             e.preventDefault();
+            e.stopPropagation();
         } else {
             isDragging = true;
         }

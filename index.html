@@ -405,6 +405,7 @@
       .card:nth-child(5) { animation-delay: 0.5s; }
       .card:nth-child(6) { animation-delay: 0.6s; }
       .card:nth-child(7) { animation-delay: 0.7s; }
+      .card:nth-child(8) { animation-delay: 0.8s; }
 
       .card:hover {
         transform: translateY(-8px);
@@ -474,6 +475,12 @@
           radial-gradient(circle at 70% 30%, rgba(255, 100, 200, 0.3), transparent 50%),
           linear-gradient(135deg, #0a0015, #150020);
       }
+      .card-physics .card-cover-bg {
+        background:
+          radial-gradient(circle at 30% 60%, rgba(255, 170, 80, 0.5), transparent 50%),
+          radial-gradient(circle at 70% 30%, rgba(255, 100, 100, 0.4), transparent 50%),
+          linear-gradient(135deg, #1a0800, #0a0a1a);
+      }
 
       /* Floating icon in the cover */
       .card-cover-icon {
@@ -531,6 +538,7 @@
       .card-cv .card-tag { background: rgba(0,255,136,0.15); color: #00ff88; }
       .card-iron .card-tag { background: rgba(0,180,255,0.15); color: #00d4ff; }
       .card-piano .card-tag { background: rgba(180,100,255,0.15); color: #c084fc; }
+      .card-physics .card-tag { background: rgba(255,170,80,0.15); color: #ffa94d; }
 
       .card-title {
         font-family: var(--font-display);
@@ -694,7 +702,7 @@
     <!-- Stats -->
     <div class="stats-bar">
         <div class="stat-item">
-            <div class="stat-value">7</div>
+            <div class="stat-value">8</div>
             <div class="stat-label">Experiences</div>
         </div>
         <div class="stat-item">
@@ -907,6 +915,34 @@
                 </div>
                 <div class="card-cta">
                     <span class="card-cta-text">Play Music</span>
+                    <div class="card-arrow">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+                </div>
+            </div>
+        </a>
+
+        <!-- Physics Playground -->
+        <a href="physics-playground/physics-playground.html" class="card card-physics" id="card-physics">
+            <div class="card-cover">
+                <div class="card-cover-bg"></div>
+                <div class="card-cover-icon">⚽</div>
+            </div>
+            <div class="card-body">
+                <span class="card-tag">Physics</span>
+                <h3 class="card-title">Physics Playground</h3>
+                <p class="card-desc">
+                    Watch 3D balls, bubbles, blocks, and rain fall from the sky and bounce off your hands
+                    with real physics! Full collision detection, gravity, and ball-to-ball interactions.
+                </p>
+                <div class="card-features">
+                    <span class="feature-chip">Gravity</span>
+                    <span class="feature-chip">Collisions</span>
+                    <span class="feature-chip">4 Modes</span>
+                    <span class="feature-chip">3D Rendering</span>
+                </div>
+                <div class="card-cta">
+                    <span class="card-cta-text">Start Playing</span>
                     <div class="card-arrow">
                         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                     </div>
