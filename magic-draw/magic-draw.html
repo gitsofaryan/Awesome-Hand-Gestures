@@ -27,7 +27,7 @@
             position: fixed;
             top: 0; left: 0;
             width: 100vw; height: 100vh;
-            object-fit: cover;
+            object-fit: contain;
             z-index: 0;
             filter: brightness(0.45) contrast(1.15) saturate(0.8);
         }
@@ -672,11 +672,11 @@ function init() {
             currentStream.getTracks().forEach(track => track.stop());
         }
 
-        const screenRatio = window.innerWidth / window.innerHeight;
+        const isPortrait = window.innerHeight > window.innerWidth;
         const constraints = {
             video: {
                 facingMode: currentFacingMode,
-                aspectRatio: { ideal: screenRatio }
+                aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
             }
         };
 
