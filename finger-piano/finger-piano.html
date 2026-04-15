@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Finger Piano — Hand Tracking Music</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0a0015;
+            overflow: hidden;
+            font-family: 'Outfit', sans-serif;
+            color: #fff;
+            touch-action: none;
+        }
+
+        #videoEl {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            object-fit: contain;
+            z-index: 0;
+            filter: brightness(0.3) contrast(1.1) saturate(0.7);
+        }
+        #videoEl.mirrored { transform: scaleX(-1); }
+
+        #pianoCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 2;
+            pointer-events: none;
+        }
+
+        #fxCanvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .hud {
+            position: fixed;
+            top: 16px; left: 16px;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .hud-panel {
+            background: rgba(20, 0, 40, 0.6);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(180, 100, 255, 0.15);
+            border-radius: 14px;
+            padding: 10px 16px;
+            font-size: 0.78rem;
+            color: rgba(200, 160, 255, 0.8);
+            min-width: 140px;
+        }
+        .hud-panel .val { color: #c084fc; font-weight: 700; }
+
+        .back-btn {
+            position: fixed;
+            top: 16px; right: 16px;
+            z-index: 20;
+            background: rgba(20, 0, 40, 0.6);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(180, 100, 255, 0.15);
+            border-radius: 12px;
+            padding: 10px 18px;
+            color: #c084fc;
+            text-decoration: none;
+            font-size: 0.82rem;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .back-btn:hover { background: rgba(180, 100, 255, 0.15); }
+
+        .flip-btn {
+            position: fixed;
+            top: 66px; right: 16px;
+            z-index: 30;
+            background: rgba(20, 0, 40, 0.6);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(180, 100, 255, 0.15);
+            border-radius: 50%;
+            width: 44px; height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #c084fc;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .flip-btn:hover { background: rgba(180, 100, 255, 0.15); transform: rotate(180deg); }
+        .flip-btn svg { width: 22px; height: 22px; fill: currentColor; }
+
+        #loader {
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.6s;
+        }
+        #loader h2 { font-weight: 300; letter-spacing: 4px; font-size: 1.3rem; color: #c084fc; }
+        #loader p { color: #555; font-size: 0.9rem; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 3px solid rgba(180, 100, 255, 0.15);
+            border-top-color: #c084fc;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); }}
+        .fade-out { opacity: 0; pointer-events: none; }
+
+        /* Scale selector */
+        .scale-bar {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            gap: 6px;
+            background: rgba(20, 0, 40, 0.6);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(180, 100, 255, 0.15);
+            border-radius: 30px;
+            padding: 6px 12px;
+        }
+        .scale-btn {
+            background: transparent;
+            border: 1px solid transparent;
+            color: rgba(200, 160, 255, 0.5);
+            padding: 8px 14px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.25s;
+            font-family: 'Outfit', sans-serif;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+        .scale-btn.active {
+            background: rgba(180, 100, 255, 0.15);
+            border-color: rgba(180, 100, 255, 0.3);
+            color: #c084fc;
+        }
+        .scale-btn:hover { color: #c084fc; }
+
+        @media (max-width: 600px) {
+            .hud-panel { padding: 6px 10px; font-size: 0.68rem; min-width: 110px; }
+            .back-btn { padding: 8px 12px; font-size: 0.75rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loader">
+    <div class="spinner"></div>
+    <h2>FINGER PIANO</h2>
+    <p>Loading hand tracking model…</p>
+</div>
+
+<video id="videoEl" autoplay playsinline></video>
+<canvas id="pianoCanvas"></canvas>
+<canvas id="fxCanvas"></canvas>
+
+<a href="../index.html" class="back-btn">← Back</a>
+<div class="flip-btn" id="flipBtn" title="Flip Camera">
+    <svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg>
+</div>
+
+<div class="hud">
+    <div class="hud-panel">
+        🎹 Note: <span class="val" id="h-note">—</span>
+    </div>
+    <div class="hud-panel">
+        Hands: <span class="val" id="h-count">0</span> &ensp;|&ensp;FPS: <span class="val" id="h-fps">0</span>
+    </div>
+</div>
+
+<div class="scale-bar">
+    <button class="scale-btn active" data-scale="major">Major</button>
+    <button class="scale-btn" data-scale="minor">Minor</button>
+    <button class="scale-btn" data-scale="pentatonic">Pentatonic</button>
+    <button class="scale-btn" data-scale="blues">Blues</button>
+</div>
+
+<script>
+// ─── GLOBALS ──────────────────────────────
+const video = document.getElementById('videoEl');
+const pianoCanvas = document.getElementById('pianoCanvas');
+const fxCanvas = document.getElementById('fxCanvas');
+const pCtx = pianoCanvas.getContext('2d');
+const fxCtx = fxCanvas.getContext('2d');
+
+let W = window.innerWidth, H = window.innerHeight;
+let time = 0, lastT = performance.now(), fps = 0, fc = 0, fpsT = performance.now();
+let currentHands = [];
+let currentFacingMode = 'user';
+let currentStream = null;
+
+// Smoothing
+let smoothedLandmarks = [null, null];
+const alpha = 0.65;
+
+function applyEMA(newPoints, handIdx) {
+    if (!smoothedLandmarks[handIdx] || smoothedLandmarks[handIdx].length !== newPoints.length) {
+        smoothedLandmarks[handIdx] = JSON.parse(JSON.stringify(newPoints));
+        return smoothedLandmarks[handIdx];
+    }
+    for (let i = 0; i < newPoints.length; i++) {
+        smoothedLandmarks[handIdx][i].x = smoothedLandmarks[handIdx][i].x * (1 - alpha) + newPoints[i].x * alpha;
+        smoothedLandmarks[handIdx][i].y = smoothedLandmarks[handIdx][i].y * (1 - alpha) + newPoints[i].y * alpha;
+        smoothedLandmarks[handIdx][i].z = smoothedLandmarks[handIdx][i].z * (1 - alpha) + newPoints[i].z * alpha;
+    }
+    return smoothedLandmarks[handIdx];
+}
+
+// ─── AUDIO ENGINE ─────────────────────────
+let audioCtx = null;
+
+const scales = {
+    major:      [261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25],
+    minor:      [261.63, 293.66, 311.13, 349.23, 392.00, 415.30, 466.16, 523.25],
+    pentatonic: [261.63, 293.66, 329.63, 392.00, 440.00, 523.25, 587.33, 659.25],
+    blues:      [261.63, 311.13, 349.23, 369.99, 392.00, 466.16, 523.25, 622.25]
+};
+
+let currentScale = 'major';
+const NUM_KEYS = 8;
+
+// Key colors (each key unique)
+const keyColors = [
+    '#ff6b6b', '#ffa94d', '#ffd43b', '#69db7c',
+    '#4dabf7', '#748ffc', '#b197fc', '#f783ac'
+];
+
+const keyNames = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C\''];
+
+// Track which keys are currently pressed to avoid re-triggering
+let keyPressed = {};
+let ripples = [];
+
+function initAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+
+function playNote(freq, keyIdx) {
+    if (!audioCtx) initAudio();
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+
+    // Add slight vibrato
+    const vibrato = audioCtx.createOscillator();
+    const vibratoGain = audioCtx.createGain();
+    vibrato.frequency.value = 5;
+    vibratoGain.gain.value = 2;
+    vibrato.connect(vibratoGain);
+    vibratoGain.connect(osc.frequency);
+    vibrato.start();
+
+    filter.type = 'lowpass';
+    filter.frequency.value = 2000;
+
+    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.8);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.9);
+    vibrato.stop(audioCtx.currentTime + 0.9);
+
+    document.getElementById('h-note').textContent = keyNames[keyIdx] || freq.toFixed(0) + 'Hz';
+}
+
+// ─── SETUP ────────────────────────────────
+function resize() {
+    W = window.innerWidth;
+    H = window.innerHeight;
+    pianoCanvas.width = W; pianoCanvas.height = H;
+    fxCanvas.width = W; fxCanvas.height = H;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Scale switcher
+document.querySelectorAll('.scale-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.scale-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentScale = btn.dataset.scale;
+    });
+});
+
+// ─── COORDINATE MAPPING ──────────────────
+function toScreen(lm) {
+    let x = currentFacingMode === 'user' ? (1 - lm.x) : lm.x;
+    return { x: x * W, y: lm.y * H };
+}
+
+// ─── PIANO KEYS LAYOUT ──────────────────
+function getKeyBounds() {
+    const keyHeight = H * 0.22;
+    const keyTop = H - keyHeight;
+    const keyWidth = W / NUM_KEYS;
+    const keys = [];
+
+    for (let i = 0; i < NUM_KEYS; i++) {
+        keys.push({
+            x: i * keyWidth,
+            y: keyTop,
+            w: keyWidth,
+            h: keyHeight,
+            freq: scales[currentScale][i],
+            color: keyColors[i],
+            name: keyNames[i],
+            active: false
+        });
+    }
+    return keys;
+}
+
+function drawKeys(ctx, keys) {
+    keys.forEach((key, i) => {
+        // Key background with gradient
+        const grad = ctx.createLinearGradient(key.x, key.y, key.x, key.y + key.h);
+
+        if (key.active) {
+            grad.addColorStop(0, key.color + 'cc');
+            grad.addColorStop(1, key.color + '44');
+        } else {
+            grad.addColorStop(0, 'rgba(255,255,255,0.04)');
+            grad.addColorStop(1, 'rgba(255,255,255,0.01)');
+        }
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(key.x + 1, key.y, key.w - 2, key.h);
+
+        // Key border
+        ctx.strokeStyle = key.active ? key.color : 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = key.active ? 2 : 1;
+        ctx.strokeRect(key.x + 1, key.y, key.w - 2, key.h);
+
+        // Key label
+        ctx.font = key.active ? 'bold 14px "Outfit", sans-serif' : '12px "Outfit", sans-serif';
+        ctx.fillStyle = key.active ? '#fff' : 'rgba(255,255,255,0.3)';
+        ctx.textAlign = 'center';
+        ctx.fillText(key.name, key.x + key.w / 2, key.y + key.h - 16);
+
+        // Top glow line when active
+        if (key.active) {
+            const glowGrad = ctx.createLinearGradient(key.x, key.y, key.x + key.w, key.y);
+            glowGrad.addColorStop(0, 'transparent');
+            glowGrad.addColorStop(0.5, key.color);
+            glowGrad.addColorStop(1, 'transparent');
+            ctx.strokeStyle = glowGrad;
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(key.x, key.y);
+            ctx.lineTo(key.x + key.w, key.y);
+            ctx.stroke();
+        }
+    });
+    ctx.textAlign = 'start';
+}
+
+// ─── RIPPLE EFFECTS ──────────────────────
+function spawnRipple(x, y, color) {
+    ripples.push({
+        x, y,
+        radius: 5,
+        maxRadius: 60 + Math.random() * 40,
+        life: 1.0,
+        color: color
+    });
+}
+
+function updateRipples() {
+    fxCtx.globalCompositeOperation = 'lighter';
+    for (let i = ripples.length - 1; i >= 0; i--) {
+        const r = ripples[i];
+        r.radius += (r.maxRadius - r.radius) * 0.08;
+        r.life -= 0.025;
+
+        if (r.life <= 0) {
+            ripples.splice(i, 1);
+            continue;
+        }
+
+        fxCtx.beginPath();
+        fxCtx.arc(r.x, r.y, r.radius, 0, Math.PI * 2);
+        fxCtx.strokeStyle = r.color;
+        fxCtx.lineWidth = 3 * r.life;
+        fxCtx.globalAlpha = r.life * 0.6;
+        fxCtx.stroke();
+
+        // Inner glow
+        fxCtx.beginPath();
+        fxCtx.arc(r.x, r.y, r.radius * 0.3, 0, Math.PI * 2);
+        fxCtx.fillStyle = r.color;
+        fxCtx.globalAlpha = r.life * 0.3;
+        fxCtx.fill();
+    }
+    fxCtx.globalAlpha = 1;
+    fxCtx.globalCompositeOperation = 'source-over';
+}
+
+// ─── RENDER LOOP ─────────────────────────
+function render(ts) {
+    requestAnimationFrame(render);
+    const dt = (ts - lastT) / 1000;
+    lastT = ts;
+    time += dt;
+
+    fc++;
+    if (ts > fpsT + 1000) {
+        fps = fc; fc = 0; fpsT = ts;
+        document.getElementById('h-fps').textContent = fps;
+    }
+
+    pCtx.clearRect(0, 0, W, H);
+    fxCtx.clearRect(0, 0, W, H);
+
+    const keys = getKeyBounds();
+
+    // Check finger positions against keys
+    const TIPS = [4, 8, 12, 16, 20];
+
+    currentHands.forEach((hand, hi) => {
+        TIPS.forEach((tipIdx, ti) => {
+            const pt = toScreen(hand[tipIdx]);
+            const key = `${hi}_${ti}`;
+
+            // Check if fingertip is inside any key
+            let hitKey = -1;
+            for (let k = 0; k < keys.length; k++) {
+                if (pt.x >= keys[k].x && pt.x <= keys[k].x + keys[k].w &&
+                    pt.y >= keys[k].y && pt.y <= keys[k].y + keys[k].h) {
+                    hitKey = k;
+                    keys[k].active = true;
+                    break;
+                }
+            }
+
+            if (hitKey >= 0 && !keyPressed[key]) {
+                // Key just pressed
+                playNote(keys[hitKey].freq, hitKey);
+                spawnRipple(pt.x, keys[hitKey].y, keys[hitKey].color);
+                keyPressed[key] = true;
+            } else if (hitKey < 0) {
+                keyPressed[key] = false;
+            }
+
+            // Draw fingertip indicator
+            fxCtx.beginPath();
+            fxCtx.arc(pt.x, pt.y, 6, 0, Math.PI * 2);
+            const tipColor = keyColors[ti % keyColors.length];
+            fxCtx.fillStyle = tipColor;
+            fxCtx.globalAlpha = 0.7;
+            fxCtx.fill();
+
+            // Glow
+            const glow = fxCtx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 20);
+            glow.addColorStop(0, tipColor);
+            glow.addColorStop(1, 'transparent');
+            fxCtx.beginPath();
+            fxCtx.arc(pt.x, pt.y, 20, 0, Math.PI * 2);
+            fxCtx.fillStyle = glow;
+            fxCtx.globalAlpha = 0.3;
+            fxCtx.fill();
+            fxCtx.globalAlpha = 1;
+        });
+
+        // Draw skeleton
+        if (typeof drawConnectors !== 'undefined' && typeof HAND_CONNECTIONS !== 'undefined') {
+            pCtx.globalAlpha = 0.2;
+            drawConnectors(pCtx, hand, HAND_CONNECTIONS, {
+                color: 'rgba(180, 100, 255, 0.3)',
+                lineWidth: 1
+            });
+            pCtx.globalAlpha = 1;
+        }
+    });
+
+    // Draw piano keys
+    drawKeys(pCtx, keys);
+
+    // Update ripple effects
+    if (ripples.length > 0) {
+        updateRipples();
+    }
+    if (ripples.length > 100) {
+        ripples.splice(0, ripples.length - 100);
+    }
+
+    document.getElementById('h-count').textContent = currentHands.length;
+}
+
+// ─── MEDIAPIPE INIT ──────────────────────
+function init() {
+    const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    hands.onResults((results) => {
+        let smoothed = [];
+        if (results.multiHandLandmarks) {
+            results.multiHandLandmarks.forEach((rawPts, i) => {
+                smoothed.push(applyEMA(rawPts, i));
+            });
+        }
+        currentHands = smoothed;
+
+        // First interaction initializes audio
+        if (currentHands.length > 0 && !audioCtx) {
+            initAudio();
+        }
+
+        const loader = document.getElementById('loader');
+        if (loader && !loader.classList.contains('fade-out')) {
+            loader.classList.add('fade-out');
+        }
+    });
+
+    async function setupCamera() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+        }
+
+        const isPortrait = window.innerHeight > window.innerWidth;
+        const constraints = {
+            video: {
+                facingMode: currentFacingMode,
+                aspectRatio: { ideal: isPortrait ? 9/16 : 16/9 }
+            }
+        };
+
+        if (currentFacingMode === 'user') {
+            video.classList.add('mirrored');
+        } else {
+            video.classList.remove('mirrored');
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            currentStream = stream;
+            video.srcObject = stream;
+            await new Promise(resolve => {
+                video.onloadedmetadata = () => { resolve(); };
+            });
+            video.play();
+
+            async function detectionFrame() {
+                if (!video.paused && !video.ended) {
+                    await hands.send({ image: video });
+                }
+                requestAnimationFrame(detectionFrame);
+            }
+            detectionFrame();
+        } catch (error) {
+            console.error("Camera access error:", error);
+            if (currentFacingMode === 'environment') {
+                currentFacingMode = 'user';
+                setupCamera();
+            } else {
+                alert("Could not access camera. " + error);
+            }
+        }
+    }
+
+    document.getElementById('flipBtn').addEventListener('click', () => {
+        currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
+        setupCamera();
+    });
+
+    setupCamera();
+    requestAnimationFrame(render);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -403,6 +403,8 @@
       .card:nth-child(3) { animation-delay: 0.3s; }
       .card:nth-child(4) { animation-delay: 0.4s; }
       .card:nth-child(5) { animation-delay: 0.5s; }
+      .card:nth-child(6) { animation-delay: 0.6s; }
+      .card:nth-child(7) { animation-delay: 0.7s; }
 
       .card:hover {
         transform: translateY(-8px);
@@ -460,6 +462,18 @@
           radial-gradient(circle at 80% 80%, rgba(0, 136, 255, 0.4), transparent 50%),
           linear-gradient(135deg, #001a11, #00111a);
       }
+      .card-iron .card-cover-bg {
+        background:
+          radial-gradient(circle at 50% 40%, rgba(0, 180, 255, 0.5), transparent 50%),
+          radial-gradient(circle at 30% 70%, rgba(255, 50, 50, 0.3), transparent 50%),
+          linear-gradient(135deg, #001020, #0a0a1a);
+      }
+      .card-piano .card-cover-bg {
+        background:
+          radial-gradient(circle at 40% 50%, rgba(180, 100, 255, 0.5), transparent 50%),
+          radial-gradient(circle at 70% 30%, rgba(255, 100, 200, 0.3), transparent 50%),
+          linear-gradient(135deg, #0a0015, #150020);
+      }
 
       /* Floating icon in the cover */
       .card-cover-icon {
@@ -515,6 +529,8 @@
       .card-neon .card-tag { background: rgba(168,85,247,0.15); color: #c084fc; }
       .card-draw .card-tag { background: rgba(255,68,102,0.15); color: #ff6b6b; }
       .card-cv .card-tag { background: rgba(0,255,136,0.15); color: #00ff88; }
+      .card-iron .card-tag { background: rgba(0,180,255,0.15); color: #00d4ff; }
+      .card-piano .card-tag { background: rgba(180,100,255,0.15); color: #c084fc; }
 
       .card-title {
         font-family: var(--font-display);
@@ -678,7 +694,7 @@
     <!-- Stats -->
     <div class="stats-bar">
         <div class="stat-item">
-            <div class="stat-value">5</div>
+            <div class="stat-value">7</div>
             <div class="stat-label">Experiences</div>
         </div>
         <div class="stat-item">
@@ -835,6 +851,62 @@
                 </div>
                 <div class="card-cta">
                     <span class="card-cta-text">Scan Area</span>
+                    <div class="card-arrow">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+                </div>
+            </div>
+        </a>
+
+        <!-- Iron HUD -->
+        <a href="iron-hud/iron-hud.html" class="card card-iron" id="card-iron">
+            <div class="card-cover">
+                <div class="card-cover-bg"></div>
+                <div class="card-cover-icon">🦾</div>
+            </div>
+            <div class="card-body">
+                <span class="card-tag">Sci-Fi</span>
+                <h3 class="card-title">Iron HUD</h3>
+                <p class="card-desc">
+                    Summon a holographic heads-up display around your hands. Switch between targeting reticles,
+                    repulsor blasts with particle explosions, and radar-style scanning mode.
+                </p>
+                <div class="card-features">
+                    <span class="feature-chip">HUD Overlay</span>
+                    <span class="feature-chip">Repulsor FX</span>
+                    <span class="feature-chip">Arc Reactor</span>
+                    <span class="feature-chip">Radar Scan</span>
+                </div>
+                <div class="card-cta">
+                    <span class="card-cta-text">Power Up</span>
+                    <div class="card-arrow">
+                        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+                    </div>
+                </div>
+            </div>
+        </a>
+
+        <!-- Finger Piano -->
+        <a href="finger-piano/finger-piano.html" class="card card-piano" id="card-piano">
+            <div class="card-cover">
+                <div class="card-cover-bg"></div>
+                <div class="card-cover-icon">🎹</div>
+            </div>
+            <div class="card-body">
+                <span class="card-tag">Music</span>
+                <h3 class="card-title">Finger Piano</h3>
+                <p class="card-desc">
+                    Play a virtual piano in mid-air using your fingertips! Touch the glowing keys at the bottom
+                    of the screen to produce real notes with visual ripple effects and 4 musical scales.
+                </p>
+                <div class="card-features">
+                    <span class="feature-chip">Web Audio</span>
+                    <span class="feature-chip">4 Scales</span>
+                    <span class="feature-chip">Ripple FX</span>
+                    <span class="feature-chip">Multi-hand</span>
+                </div>
+                <div class="card-cta">
+                    <span class="card-cta-text">Play Music</span>
                     <div class="card-arrow">
                         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
                     </div>
